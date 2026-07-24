@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     app_name: str = "signalweek"
     environment: str = "development"
     debug: bool = False
+    database_url: str = "sqlite+aiosqlite:///./signalweek.db"
 
 
 @lru_cache(maxsize=1)

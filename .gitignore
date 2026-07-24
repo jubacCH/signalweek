@@ -5,3 +5,6 @@ node_modules/
 .env
 dist/
 build/
+*.db
+*.sqlite
+*.sqlite3
