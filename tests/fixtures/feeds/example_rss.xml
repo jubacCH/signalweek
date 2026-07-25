@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Engineering Blog</title>
+    <link>https://blog.example.com/</link>
+    <description>Posts from the Example team.</description>
+    <language>en-us</language>
+    <item>
+      <title>Rolling out the new pipeline</title>
+      <link>https://blog.example.com/posts/new-pipeline?utm_source=rss&amp;utm_medium=feed</link>
+      <guid isPermaLink="false">post-101</guid>
+      <pubDate>Mon, 20 Jul 2026 09:00:00 +0000</pubDate>
+      <description>How we shipped the new ingest pipeline in a week.</description>
+    </item>
+    <item>
+      <title>Metrics that matter</title>
+      <link>HTTPS://Blog.Example.com/posts/metrics/</link>
+      <guid isPermaLink="false">post-102</guid>
+      <pubDate>Tue, 21 Jul 2026 12:30:00 +0000</pubDate>
+      <description>A short opinion piece on team-level metrics.</description>
+    </item>
+    <item>
+      <title>Duplicate of the pipeline post (different casing, same page)</title>
+      <link>https://blog.example.com/posts/new-pipeline#section-2</link>
+      <guid isPermaLink="false">post-101-dup</guid>
+      <pubDate>Mon, 20 Jul 2026 09:15:00 +0000</pubDate>
+      <description>Same URL, should be dropped as a duplicate.</description>
+    </item>
+    <item>
+      <title>Untitled placeholder without a link</title>
+      <guid isPermaLink="false">post-noop</guid>
+      <description>Missing link — should be skipped.</description>
+    </item>
+  </channel>
+</rss>
