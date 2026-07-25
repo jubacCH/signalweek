@@ -1,13 +1,16 @@
 {% extends "base.html.j2" %}
 {% block content %}
-<article id="digest">
+<article id="digest-permalink" data-iso-week="{{ iso_week }}">
 <hgroup>
-<h1>This week's digest</h1>
-<h2>Week of {{ digest.window_start.date().isoformat() }} to {{ digest.window_end.date().isoformat() }} (in progress).</h2>
+<h1>Digest for week {{ iso_week }}</h1>
+<h2>Week of {{ week_start.isoformat() }} to {{ week_end.isoformat() }}.</h2>
 </hgroup>
-<p><a href="/digest/history">Browse the archive &rarr;</a></p>
+<p>
+<a href="/digest/{{ iso_week }}.md" download role="button" class="secondary outline">Download Markdown</a>
+<a href="/digest/history">Back to archive</a>
+</p>
 {% if digest.is_empty %}
-<p id="digest-empty"><em>No signals this week yet. Add sources or check back later.</em></p>
+<p id="digest-empty"><em>No signals for this week.</em></p>
 {% else %}
 {% for section in digest.sections %}
 <section>

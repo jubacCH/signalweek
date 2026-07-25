@@ -1,0 +1,41 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<article id="digest-history">
+<hgroup>
+<h1>Digest archive</h1>
+<h2>Past weekly digests, newest first.</h2>
+</hgroup>
+{% if entries %}
+<ul id="digest-history-list">
+{% for entry in entries %}
+<li>
+<a href="/digest/{{ entry.iso_week }}">Week of {{ entry.week_start.isoformat() }}</a>
+&mdash;
+<a href="/digest/{{ entry.iso_week }}.md" download>Download .md</a>
+</li>
+{% endfor %}
+</ul>
+<nav id="digest-history-pagination">
+<ul>
+<li>
+{% if has_prev %}
+<a href="/digest/history?page={{ page - 1 }}" rel="prev">&larr; Newer</a>
+{% else %}
+<span class="secondary">&larr; Newer</span>
+{% endif %}
+</li>
+<li><small>Page {{ page }} of {{ total_pages }}</small></li>
+<li>
+{% if has_next %}
+<a href="/digest/history?page={{ page + 1 }}" rel="next">Older &rarr;</a>
+{% else %}
+<span class="secondary">Older &rarr;</span>
+{% endif %}
+</li>
+</ul>
+</nav>
+{% else %}
+<p id="digest-history-empty"><em>No past digests yet. Once weekly digests are generated they will show up here.</em></p>
+{% endif %}
+</article>
+{% endblock %}
