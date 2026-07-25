@@ -41,6 +41,9 @@ class User(Base):
     digests: Mapped[list[Digest]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    api_tokens: Mapped[list[ApiToken]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Source(Base):
@@ -103,3 +106,23 @@ class Digest(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="digests")
+
+
+class ApiToken(Base):
+    """A bearer token that authenticates JSON API requests for a user.
+
+    Only the SHA-256 hash of the plaintext token is stored; the raw value is
+    returned to the caller once at creation and cannot be recovered later.
+    """
+
+    __tablename__ = "api_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    user: Mapped[User] = relationship(back_populates="api_tokens")

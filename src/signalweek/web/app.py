@@ -30,6 +30,7 @@ from signalweek.db.models import User
 from signalweek.db.repositories import DigestRepository, SourceRepository, UserRepository
 from signalweek.db.session import get_session_factory
 from signalweek.digest import build_digest, render_markdown
+from signalweek.web.api import build_api_router
 from signalweek.web.security import hash_password, verify_password
 from signalweek.web.sessions import (
     clear_session_cookie,
@@ -118,7 +119,7 @@ def create_app(
     the in-progress week window is deterministic.
     """
 
-    app = FastAPI(title="Signalweek", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Signalweek", docs_url="/docs", redoc_url=None)
 
     package_root = files("signalweek.web")
     templates_dir = str(package_root / "templates")
@@ -129,6 +130,8 @@ def create_app(
     session_provider = session_dependency or _default_session_dependency
     validate_feed: FeedValidator = feed_validator or validate_feed_url
     now_provider: Clock = clock or _default_clock
+
+    app.include_router(build_api_router(session_provider, validate_feed))
 
     def _get_session() -> Iterator[Session]:
         yield from session_provider()
