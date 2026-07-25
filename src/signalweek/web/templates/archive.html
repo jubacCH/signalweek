@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="archive">
+  <h1>Archive</h1>
+  {% if issues %}
+  <ul class="archive-list">
+    {% for entry in issues %}
+    <li class="archive-item">
+      <a href="/issues/{{ entry.iso_week }}">{{ entry.title }}</a>
+      {% if entry.published_at %}
+      <time datetime="{{ entry.published_at.isoformat() }}">
+        {{ entry.published_at.strftime('%Y-%m-%d') }}
+      </time>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No issues published yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
