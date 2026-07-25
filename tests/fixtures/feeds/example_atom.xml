@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Example Research Notes</title>
+  <link href="https://research.example.org/" rel="alternate"/>
+  <link href="https://research.example.org/feed.atom" rel="self"/>
+  <id>tag:research.example.org,2026:/</id>
+  <updated>2026-07-22T10:00:00Z</updated>
+  <entry>
+    <title>On latency budgets</title>
+    <link href="https://research.example.org/notes/latency-budgets?fbclid=abc123" rel="alternate"/>
+    <id>tag:research.example.org,2026:notes/latency-budgets</id>
+    <updated>2026-07-22T10:00:00Z</updated>
+    <summary>Why every service should publish a latency budget.</summary>
+  </entry>
+  <entry>
+    <title>Load shedding in practice</title>
+    <link href="https://research.example.org/notes/load-shedding" rel="alternate"/>
+    <link href="https://research.example.org/notes/load-shedding.pdf" rel="enclosure" type="application/pdf"/>
+    <id>tag:research.example.org,2026:notes/load-shedding</id>
+    <published>2026-07-18T08:00:00Z</published>
+    <updated>2026-07-19T09:00:00Z</updated>
+    <summary>Concrete techniques for load shedding under pressure.</summary>
+  </entry>
+</feed>
