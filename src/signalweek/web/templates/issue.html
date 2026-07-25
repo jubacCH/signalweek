@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<article class="issue">
+  <header class="issue-header">
+    <p class="issue-eyebrow">Issue {{ iso_week }}</p>
+    <h1>{{ issue.title }}</h1>
+    {% if issue.published_at %}
+    <p class="issue-meta">
+      Published <time datetime="{{ issue.published_at.isoformat() }}">
+        {{ issue.published_at.strftime('%Y-%m-%d') }}
+      </time>
+    </p>
+    {% endif %}
+  </header>
+  <div class="issue-body">
+    {{ body_html | safe }}
+  </div>
+</article>
+{% endblock %}

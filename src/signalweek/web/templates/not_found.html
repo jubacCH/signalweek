@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="not-found">
+  <h1>Issue not found</h1>
+  <p>No issue matches <code>{{ iso_week }}</code>.</p>
+  <p><a href="/issues">Browse the archive</a></p>
+</section>
+{% endblock %}
