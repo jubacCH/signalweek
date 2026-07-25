@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    image: signalweek:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./signalweek.db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
