@@ -1,11 +1,32 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
     image: signalweek:latest
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=sqlite:///./signalweek.db
-    volumes:
-      - ./data:/app/data
+    container_name: signalweek
     restart: unless-stopped
+    ports:
+      - "${SIGNALWEEK_HTTP_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      # The DB lives on the named volume mounted below so it survives
+      # `docker compose down`. Override in .env to point at Postgres etc.
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/signalweek.db}
+    volumes:
+      - signalweek_data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  signalweek_data:
