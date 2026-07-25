@@ -12,7 +12,7 @@ from datetime import date, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from signalweek.db.models import Digest, Signal, Source, User
+from signalweek.db.models import ApiToken, Digest, Signal, Source, User
 
 
 class UserRepository:
@@ -185,4 +185,25 @@ class DigestRepository:
             .offset(offset)
             .limit(limit)
         )
+        return self.session.execute(stmt).scalars().all()
+
+
+class ApiTokenRepository:
+    """CRUD helpers for :class:`ApiToken`."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def create(self, *, user_id: int, token_hash: str, name: str | None = None) -> ApiToken:
+        token = ApiToken(user_id=user_id, token_hash=token_hash, name=name)
+        self.session.add(token)
+        self.session.flush()
+        return token
+
+    def get_by_hash(self, token_hash: str) -> ApiToken | None:
+        stmt = select(ApiToken).where(ApiToken.token_hash == token_hash)
+        return self.session.execute(stmt).scalar_one_or_none()
+
+    def list_for_user(self, user_id: int) -> Sequence[ApiToken]:
+        stmt = select(ApiToken).where(ApiToken.user_id == user_id).order_by(ApiToken.id)
         return self.session.execute(stmt).scalars().all()

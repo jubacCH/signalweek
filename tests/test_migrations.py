@@ -29,7 +29,7 @@ def test_upgrade_head_creates_all_tables(tmp_path: Path) -> None:
     finally:
         engine.dispose()
 
-    expected = {"users", "sources", "signals", "digests", "alembic_version"}
+    expected = {"users", "sources", "signals", "digests", "api_tokens", "alembic_version"}
     assert expected.issubset(tables)
 
 
@@ -47,5 +47,5 @@ def test_downgrade_removes_all_tables(tmp_path: Path) -> None:
     finally:
         engine.dispose()
 
-    for name in ("users", "sources", "signals", "digests"):
+    for name in ("users", "sources", "signals", "digests", "api_tokens"):
         assert name not in tables
