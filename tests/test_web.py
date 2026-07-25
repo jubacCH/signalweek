@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
@@ -209,6 +210,175 @@ class TestIssueRoute:
         response = await client.get("/issues/not-a-week")
         assert response.status_code == 404
         assert "Issue not found" in response.text
+
+
+class TestMarkdownExport:
+    async def test_returns_body_markdown_verbatim_with_markdown_content_type(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        client: httpx.AsyncClient,
+    ) -> None:
+        body_md = (
+            "# SignalWeek 2026-W30\n\n"
+            "## Rust\n\n"
+            "- [Rust ownership](https://one) — Hacker News\n"
+        )
+        async with session_factory() as session:
+            session.add(
+                _issue(
+                    202630,
+                    title="SignalWeek 2026-W30",
+                    body=body_md,
+                    published_at=WEEK_START,
+                )
+            )
+            await session.commit()
+
+        response = await client.get("/issues/2026-W30.md")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/markdown; charset=utf-8"
+        # The raw stored Markdown is returned unmodified — not rendered as HTML.
+        assert response.text == body_md
+        assert "<h1>" not in response.text
+
+    async def test_unknown_week_returns_404_markdown(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.get("/issues/2026-W30.md")
+        assert response.status_code == 404
+        assert response.headers["content-type"] == "text/markdown; charset=utf-8"
+        assert "2026-W30" in response.text
+
+    async def test_malformed_iso_week_returns_404_markdown(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.get("/issues/not-a-week.md")
+        assert response.status_code == 404
+        assert response.headers["content-type"] == "text/markdown; charset=utf-8"
+
+
+class TestJsonExport:
+    async def test_returns_issue_payload_with_json_content_type(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        client: httpx.AsyncClient,
+    ) -> None:
+        body_md = "# SignalWeek 2026-W30\n\n- [Rust](https://rust)\n"
+        published_at = WEEK_START
+        item_published = WEEK_START.replace(day=21, hour=12)
+        async with session_factory() as session:
+            session.add(
+                _issue(
+                    202630,
+                    title="SignalWeek 2026-W30",
+                    body=body_md,
+                    published_at=published_at,
+                    items=[
+                        SignalItem(
+                            title="Rust ownership",
+                            url="https://rust.example/one",
+                            source="Hacker News",
+                            summary="Ownership explained.",
+                            published_at=item_published,
+                        ),
+                        SignalItem(
+                            title="Async in Rust",
+                            url="https://rust.example/two",
+                            source=None,
+                            summary=None,
+                            published_at=None,
+                        ),
+                    ],
+                )
+            )
+            await session.commit()
+
+        response = await client.get("/issues/2026-W30.json")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/json"
+
+        # Payload is valid JSON and matches the stored digest.
+        payload = json.loads(response.text)
+        assert payload["iso_week"] == "2026-W30"
+        assert payload["number"] == 202630
+        assert payload["title"] == "SignalWeek 2026-W30"
+        assert payload["body_markdown"] == body_md
+        assert payload["published_at"] == published_at.isoformat()
+
+        assert len(payload["items"]) == 2
+        first = payload["items"][0]
+        assert first == {
+            "title": "Rust ownership",
+            "url": "https://rust.example/one",
+            "source": "Hacker News",
+            "summary": "Ownership explained.",
+            "published_at": item_published.isoformat(),
+        }
+        second = payload["items"][1]
+        assert second["source"] is None
+        assert second["summary"] is None
+        assert second["published_at"] is None
+
+    async def test_returns_empty_items_when_issue_has_none(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        client: httpx.AsyncClient,
+    ) -> None:
+        async with session_factory() as session:
+            session.add(
+                _issue(
+                    202631,
+                    title="SignalWeek 2026-W31",
+                    body="# empty\n",
+                    published_at=WEEK_START.replace(day=27),
+                )
+            )
+            await session.commit()
+
+        response = await client.get("/issues/2026-W31.json")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["items"] == []
+
+    async def test_unknown_week_returns_404_json(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.get("/issues/2026-W30.json")
+        assert response.status_code == 404
+        assert response.headers["content-type"] == "application/json"
+        payload = response.json()
+        assert payload == {"error": "not found", "iso_week": "2026-W30"}
+
+    async def test_malformed_iso_week_returns_404_json(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.get("/issues/not-a-week.json")
+        assert response.status_code == 404
+        assert response.headers["content-type"] == "application/json"
+        assert response.json()["error"] == "not found"
+
+    async def test_html_route_still_wins_over_extensions(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        client: httpx.AsyncClient,
+    ) -> None:
+        # Sanity-check that the plain HTML route is unaffected by the new
+        # extension-suffixed routes registered before it.
+        async with session_factory() as session:
+            session.add(
+                _issue(
+                    202630,
+                    title="SignalWeek 2026-W30",
+                    body="# hello\n",
+                    published_at=WEEK_START,
+                )
+            )
+            await session.commit()
+
+        response = await client.get("/issues/2026-W30")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert "<h1>hello</h1>" in response.text
 
 
 class TestStatic:

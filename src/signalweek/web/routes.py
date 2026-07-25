@@ -11,17 +11,18 @@ digest pipeline.
 from __future__ import annotations
 
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from jinja2 import Environment
 from markdown_it import MarkdownIt
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
-from signalweek.db.models import Issue
+from signalweek.db.models import Issue, SignalItem
 
 RouteHandler = Callable[[Request], Awaitable[Response]]
 
@@ -56,13 +57,50 @@ def render_markdown_html(markdown: str) -> str:
     return rendered
 
 
+MARKDOWN_MEDIA_TYPE = "text/markdown; charset=utf-8"
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    # SQLite drops tzinfo on round-trip; treat naive datetimes as UTC so
+    # the JSON payload is timezone-aware regardless of the backend.
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.isoformat()
+
+
+def issue_to_json_payload(issue: Issue, items: Sequence[SignalItem]) -> dict[str, object]:
+    """Serialise ``issue`` (and its ``items``) into a JSON-ready mapping."""
+
+    return {
+        "iso_week": format_iso_week(issue),
+        "number": issue.number,
+        "title": issue.title,
+        "body_markdown": issue.body_markdown,
+        "published_at": _iso_or_none(issue.published_at),
+        "items": [
+            {
+                "title": item.title,
+                "url": item.url,
+                "source": item.source,
+                "summary": item.summary,
+                "published_at": _iso_or_none(item.published_at),
+            }
+            for item in items
+        ],
+    }
+
+
 @dataclass(frozen=True)
 class Handlers:
-    """Bundle of the three public route handlers."""
+    """Bundle of the public route handlers."""
 
     index: RouteHandler
     archive: RouteHandler
     issue: RouteHandler
+    issue_markdown: RouteHandler
+    issue_json: RouteHandler
 
 
 def build_routes(
@@ -148,4 +186,50 @@ def build_routes(
             body_html=render_markdown_html(row.body_markdown),
         )
 
-    return Handlers(index=index, archive=archive, issue=issue)
+    async def _load_issue(iso_week: str) -> Issue | None:
+        number = parse_iso_week(iso_week)
+        if number is None:
+            return None
+        async with session_factory() as session:
+            return (
+                await session.execute(
+                    select(Issue).where(Issue.number == number)
+                )
+            ).scalar_one_or_none()
+
+    async def issue_markdown(request: Request) -> Response:
+        iso_week = request.path_params["iso_week"]
+        row = await _load_issue(iso_week)
+        if row is None:
+            return PlainTextResponse(
+                f"Issue {iso_week} not found\n",
+                status_code=404,
+                media_type=MARKDOWN_MEDIA_TYPE,
+            )
+        return PlainTextResponse(row.body_markdown, media_type=MARKDOWN_MEDIA_TYPE)
+
+    async def issue_json(request: Request) -> Response:
+        iso_week = request.path_params["iso_week"]
+        number = parse_iso_week(iso_week)
+        if number is None:
+            return JSONResponse({"error": "not found", "iso_week": iso_week}, status_code=404)
+        async with session_factory() as session:
+            row = (
+                await session.execute(
+                    select(Issue).where(Issue.number == number)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return JSONResponse(
+                    {"error": "not found", "iso_week": iso_week}, status_code=404
+                )
+            items = list(row.items)
+        return JSONResponse(issue_to_json_payload(row, items))
+
+    return Handlers(
+        index=index,
+        archive=archive,
+        issue=issue,
+        issue_markdown=issue_markdown,
+        issue_json=issue_json,
+    )
