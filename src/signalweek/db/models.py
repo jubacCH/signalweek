@@ -9,6 +9,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from signalweek.db.base import Base
 
+SUBSCRIBER_STATUS_PENDING = "pending"
+SUBSCRIBER_STATUS_ACTIVE = "active"
+
 
 class Issue(Base):
     """A weekly signalweek digest issue."""
@@ -52,3 +55,20 @@ class SignalItem(Base):
     issue: Mapped[Issue | None] = relationship(back_populates="items")
 
     __table_args__ = (UniqueConstraint("url", name="uq_signal_items_url"),)
+
+
+class Subscriber(Base):
+    """A newsletter subscriber going through double opt-in."""
+
+    __tablename__ = "subscribers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    confirmation_token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    status: Mapped[str] = mapped_column(
+        String(20), default=SUBSCRIBER_STATUS_PENDING
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
