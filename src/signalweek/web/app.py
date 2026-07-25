@@ -22,6 +22,7 @@ from starlette.staticfiles import StaticFiles
 
 from signalweek.db.session import create_session_factory
 from signalweek.web.routes import build_routes
+from signalweek.web.subscribe import build_subscribe_routes
 
 WEB_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = WEB_DIR / "templates"
@@ -57,6 +58,7 @@ def build_app(
 
     templates = build_templates()
     handlers = build_routes(session_factory=session_factory, templates=templates)
+    subscribe_handlers = build_subscribe_routes(session_factory=session_factory)
 
     routes: list[Route | Mount] = [
         Route("/", handlers.index, name="index"),
@@ -64,6 +66,18 @@ def build_app(
         Route("/issues/{iso_week}.md", handlers.issue_markdown, name="issue_markdown"),
         Route("/issues/{iso_week}.json", handlers.issue_json, name="issue_json"),
         Route("/issues/{iso_week}", handlers.issue, name="issue"),
+        Route(
+            "/subscribe",
+            subscribe_handlers.subscribe,
+            methods=["POST"],
+            name="subscribe",
+        ),
+        Route(
+            "/subscribe/confirm",
+            subscribe_handlers.confirm,
+            methods=["GET"],
+            name="subscribe_confirm",
+        ),
         Mount("/static", app=StaticFiles(directory=str(STATIC_DIR)), name="static"),
     ]
     return Starlette(routes=routes)
