@@ -30,6 +30,7 @@ JOB_ID = "signalweek.weekly"
 
 IngestFn = Callable[[AsyncSession], Awaitable[Any]]
 DigestFn = Callable[[AsyncSession, datetime], Awaitable[Issue]]
+NotifyFn = Callable[[AsyncSession, Issue], Awaitable[Any]]
 
 
 async def _default_ingest(session: AsyncSession) -> None:
@@ -51,20 +52,46 @@ async def _default_digest(session: AsyncSession, now: datetime) -> Issue:
     return await assemble_digest(session, now=now)
 
 
+async def _default_notify(session: AsyncSession, issue: Issue) -> list[str]:
+    """Fallback notify: email the fresh issue to every active subscriber.
+
+    Reads SMTP settings from the environment via
+    :func:`signalweek.notify.email.smtp_config_from_env`; the default
+    config is dry-run so no traffic leaves the box until it's opted in.
+    """
+
+    from signalweek.notify.email import (
+        build_transport,
+        send_issue_to_subscribers,
+        smtp_config_from_env,
+    )
+
+    config = smtp_config_from_env()
+    transport = build_transport(config)
+    return await send_issue_to_subscribers(
+        session,
+        issue,
+        transport=transport,
+        from_address=config.from_address,
+    )
+
+
 async def run_weekly_job(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     now: datetime | None = None,
     ingest_fn: IngestFn = _default_ingest,
     digest_fn: DigestFn = _default_digest,
+    notify_fn: NotifyFn = _default_notify,
 ) -> Issue:
-    """Run the ingest → digest pipeline once and return the persisted issue.
+    """Run the ingest → digest → notify pipeline once and return the issue.
 
     Opens a single :class:`AsyncSession` from ``session_factory``, runs
-    ``ingest_fn`` to backfill any new signals, then hands the same
-    session to ``digest_fn`` to assemble the weekly issue. ``now``
-    defaults to the current UTC instant and is normalized to a
-    timezone-aware value before use.
+    ``ingest_fn`` to backfill any new signals, hands the same session to
+    ``digest_fn`` to assemble the weekly issue, then invokes
+    ``notify_fn`` so subscribers hear about it. ``now`` defaults to the
+    current UTC instant and is normalized to a timezone-aware value
+    before use.
     """
 
     ref = now if now is not None else datetime.now(UTC)
@@ -73,7 +100,9 @@ async def run_weekly_job(
 
     async with session_factory() as session:
         await ingest_fn(session)
-        return await digest_fn(session, ref)
+        issue = await digest_fn(session, ref)
+        await notify_fn(session, issue)
+        return issue
 
 
 def build_scheduler(
@@ -81,6 +110,7 @@ def build_scheduler(
     *,
     ingest_fn: IngestFn = _default_ingest,
     digest_fn: DigestFn = _default_digest,
+    notify_fn: NotifyFn = _default_notify,
 ) -> AsyncIOScheduler:
     """Return an :class:`AsyncIOScheduler` with the weekly job registered.
 
@@ -99,7 +129,12 @@ def build_scheduler(
         run_weekly_job,
         trigger=trigger,
         id=JOB_ID,
-        kwargs={"session_factory": session_factory, "ingest_fn": ingest_fn, "digest_fn": digest_fn},
+        kwargs={
+            "session_factory": session_factory,
+            "ingest_fn": ingest_fn,
+            "digest_fn": digest_fn,
+            "notify_fn": notify_fn,
+        },
         replace_existing=True,
         misfire_grace_time=None,
     )
