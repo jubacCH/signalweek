@@ -1,0 +1,31 @@
+{#
+  Rendered both as part of the full sources page and as an HTMX swap after
+  a POST /sources. The form targets itself so a failed submit swaps in a
+  copy with the error text and the URL preserved; a successful submit swaps
+  in a fresh empty copy alongside the OOB new-item element.
+#}
+<form
+  id="add-source-form"
+  method="post"
+  action="/sources"
+  hx-post="/sources"
+  hx-target="this"
+  hx-swap="outerHTML"
+>
+{% if error %}
+<p role="alert" class="error" id="add-source-error">{{ error }}</p>
+{% endif %}
+<label for="source-url">
+Feed URL
+<input
+  id="source-url"
+  name="url"
+  type="url"
+  placeholder="https://example.com/feed.xml"
+  value="{{ url or '' }}"
+  required
+>
+<small>We'll check the URL responds and looks like an RSS or Atom feed.</small>
+</label>
+<button type="submit">Add source</button>
+</form>

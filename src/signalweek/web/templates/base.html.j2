@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} &mdash; Signalweek</title>
 <link rel="stylesheet" href="{{ url_for('static', path='pico.min.css') }}">
+<script src="{{ url_for('static', path='htmx.min.js') }}" defer></script>
 </head>
 <body>
 <main class="container">
@@ -13,7 +14,17 @@
 <li><strong><a href="/">Signalweek</a></strong></li>
 </ul>
 <ul>
+{% if current_user %}
+<li><a href="/sources">Sources</a></li>
+<li>
+<form method="post" action="/logout" style="display:inline;">
+<button type="submit" class="secondary outline">Log out</button>
+</form>
+</li>
+{% else %}
+<li><a href="/login">Log in</a></li>
 <li><a href="/signup" role="button">Sign up</a></li>
+{% endif %}
 </ul>
 </nav>
 {% block content %}{% endblock %}

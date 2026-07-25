@@ -1,0 +1,18 @@
+{#
+  A single row in the sources list. Rendered both in the initial page and as
+  an out-of-band swap after a successful POST /sources so the new item
+  appears without re-rendering the whole list.
+#}
+<li id="source-{{ source.id }}"{% if oob %} hx-swap-oob="beforeend:#sources-list"{% endif %}>
+<strong>{{ source.title or source.url }}</strong>
+<br>
+<small><a href="{{ source.url }}" target="_blank" rel="noopener">{{ source.url }}</a></small>
+<button
+  type="button"
+  class="secondary outline"
+  hx-delete="/sources/{{ source.id }}"
+  hx-target="#source-{{ source.id }}"
+  hx-swap="outerHTML"
+  hx-confirm="Remove this source?"
+>Remove</button>
+</li>
