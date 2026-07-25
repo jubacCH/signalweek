@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from signalweek.db.models import Digest, Signal, Source, User
@@ -171,4 +171,18 @@ class DigestRepository:
 
     def list_for_user(self, user_id: int) -> Sequence[Digest]:
         stmt = select(Digest).where(Digest.user_id == user_id).order_by(Digest.week_start.desc())
+        return self.session.execute(stmt).scalars().all()
+
+    def count_for_user(self, user_id: int) -> int:
+        stmt = select(func.count()).select_from(Digest).where(Digest.user_id == user_id)
+        return int(self.session.execute(stmt).scalar_one())
+
+    def list_for_user_paginated(self, user_id: int, *, offset: int, limit: int) -> Sequence[Digest]:
+        stmt = (
+            select(Digest)
+            .where(Digest.user_id == user_id)
+            .order_by(Digest.week_start.desc())
+            .offset(offset)
+            .limit(limit)
+        )
         return self.session.execute(stmt).scalars().all()

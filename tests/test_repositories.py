@@ -204,6 +204,29 @@ def test_digest_list_orders_newest_week_first(session: Session) -> None:
     assert weeks == [date(2026, 1, 19), date(2026, 1, 12), date(2026, 1, 5)]
 
 
+def test_digest_count_and_paginated_listing(session: Session) -> None:
+    user = _make_user(session)
+    other = _make_user(session, "other@example.com")
+    repo = DigestRepository(session)
+    weeks = [date(2026, 1, 5), date(2026, 1, 12), date(2026, 1, 19), date(2026, 1, 26)]
+    for i, wk in enumerate(weeks):
+        repo.create(user_id=user.id, week_start=wk, content=f"w{i}")
+    repo.create(user_id=other.id, week_start=date(2026, 1, 5), content="other")
+    session.commit()
+
+    assert repo.count_for_user(user.id) == 4
+    assert repo.count_for_user(other.id) == 1
+
+    first_page = repo.list_for_user_paginated(user.id, offset=0, limit=2)
+    assert [d.week_start for d in first_page] == [date(2026, 1, 26), date(2026, 1, 19)]
+
+    second_page = repo.list_for_user_paginated(user.id, offset=2, limit=2)
+    assert [d.week_start for d in second_page] == [date(2026, 1, 12), date(2026, 1, 5)]
+
+    beyond = repo.list_for_user_paginated(user.id, offset=10, limit=2)
+    assert list(beyond) == []
+
+
 def test_cascade_delete_user_removes_children(session: Session) -> None:
     user = _make_user(session)
     source = _make_source(session, user.id, "https://x.example.com/feed")

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,10 +14,20 @@ from sqlalchemy.pool import StaticPool
 
 from signalweek.db.base import Base
 from signalweek.db.models import User
-from signalweek.db.repositories import SignalRepository, SourceRepository, UserRepository
+from signalweek.db.repositories import (
+    DigestRepository,
+    SignalRepository,
+    SourceRepository,
+    UserRepository,
+)
 from signalweek.db.session import create_session_factory
 from signalweek.web import create_app
-from signalweek.web.app import current_week_window
+from signalweek.web.app import (
+    DIGEST_HISTORY_PAGE_SIZE,
+    current_week_window,
+    format_iso_week,
+    parse_iso_week,
+)
 from signalweek.web.security import hash_password, verify_password
 from signalweek.web.sessions import SESSION_COOKIE_NAME, encode_session
 from signalweek.web.validate import FeedValidationError, ValidatedFeed
@@ -553,3 +563,255 @@ def test_digest_does_not_leak_other_users_signals(
     assert "Owner-only story" not in response.text
     assert "Owner Blog" not in response.text
     assert "No signals this week" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Digest archive: history list, permalink page, and Markdown download
+# ---------------------------------------------------------------------------
+
+
+def _make_digest_row(engine: Engine, user_id: int, week_start: date, content: str = "") -> None:
+    with Session(engine) as session:
+        DigestRepository(session).create(
+            user_id=user_id, week_start=week_start, content=content or f"body-{week_start}"
+        )
+        session.commit()
+
+
+def _seed_signal(
+    engine: Engine,
+    *,
+    user_id: int,
+    source_url: str,
+    source_title: str,
+    guid: str,
+    title: str,
+    url: str,
+    published_at: datetime,
+    summary: str | None = None,
+) -> None:
+    with Session(engine) as session:
+        sources = SourceRepository(session).list_for_user(user_id)
+        existing = next((s for s in sources if s.url == source_url), None)
+        if existing is None:
+            existing = SourceRepository(session).create(
+                user_id=user_id, url=source_url, title=source_title
+            )
+        SignalRepository(session).create(
+            source_id=existing.id,
+            guid=guid,
+            title=title,
+            url=url,
+            summary=summary,
+            published_at=published_at,
+        )
+        session.commit()
+
+
+def test_parse_iso_week_round_trips() -> None:
+    assert parse_iso_week("2026-W29") == date(2026, 7, 13)
+    assert format_iso_week(date(2026, 7, 13)) == "2026-W29"
+    # An ISO week can span calendar years — check a boundary Monday.
+    assert parse_iso_week("2026-W01") == date(2025, 12, 29)
+    assert format_iso_week(date(2025, 12, 29)) == "2026-W01"
+
+
+def test_parse_iso_week_rejects_bad_input() -> None:
+    with pytest.raises(ValueError):
+        parse_iso_week("not-a-week")
+    with pytest.raises(ValueError):
+        parse_iso_week("2026-29")
+    # Week 60 does not exist in 2026.
+    with pytest.raises(ValueError):
+        parse_iso_week("2026-W60")
+
+
+def test_digest_history_requires_authentication(client: TestClient) -> None:
+    response = client.get("/digest/history", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_digest_history_empty_state(client: TestClient, engine: Engine) -> None:
+    user = _make_user(engine)
+    _login(client, user.id)
+    response = client.get("/digest/history")
+    assert response.status_code == 200
+    body = response.text
+    assert "Digest archive" in body
+    assert 'id="digest-history-empty"' in body
+
+
+def test_digest_history_lists_digests_newest_first(client: TestClient, engine: Engine) -> None:
+    user = _make_user(engine)
+    _make_digest_row(engine, user.id, date(2026, 7, 6))
+    _make_digest_row(engine, user.id, date(2026, 7, 13))
+    _make_digest_row(engine, user.id, date(2026, 7, 20))
+    _login(client, user.id)
+    response = client.get("/digest/history")
+    assert response.status_code == 200
+    body = response.text
+    assert 'id="digest-history-list"' in body
+    # Newest week is 2026-W30 (Mon 2026-07-20).
+    idx_w30 = body.find("2026-W30")
+    idx_w29 = body.find("2026-W29")
+    idx_w28 = body.find("2026-W28")
+    assert 0 <= idx_w30 < idx_w29 < idx_w28
+    # Each row links to the permalink and the .md download.
+    assert 'href="/digest/2026-W30"' in body
+    assert 'href="/digest/2026-W30.md"' in body
+
+
+def test_digest_history_paginates(client: TestClient, engine: Engine) -> None:
+    user = _make_user(engine)
+    # 12 weeks → 2 pages when page size is 10.
+    for i in range(DIGEST_HISTORY_PAGE_SIZE + 2):
+        _make_digest_row(engine, user.id, date(2026, 1, 5) + _weeks(i))
+    _login(client, user.id)
+
+    page1 = client.get("/digest/history").text
+    assert "Page 1 of 2" in page1
+    assert 'href="/digest/history?page=2"' in page1
+    # The oldest week (Jan 5) should not appear on page 1.
+    oldest_iso = format_iso_week(date(2026, 1, 5))
+    assert oldest_iso not in page1
+
+    page2 = client.get("/digest/history?page=2").text
+    assert "Page 2 of 2" in page2
+    assert oldest_iso in page2
+    assert 'href="/digest/history?page=1"' in page2
+
+
+def test_digest_history_clamps_out_of_range_page(client: TestClient, engine: Engine) -> None:
+    user = _make_user(engine)
+    _make_digest_row(engine, user.id, date(2026, 7, 13))
+    _login(client, user.id)
+    response = client.get("/digest/history?page=99")
+    assert response.status_code == 200
+    assert "2026-W29" in response.text
+
+
+def test_digest_history_only_shows_current_user_rows(client: TestClient, engine: Engine) -> None:
+    owner = _make_user(engine, "owner@example.com")
+    intruder = _make_user(engine, "intruder@example.com")
+    _make_digest_row(engine, owner.id, date(2026, 7, 13))
+    _login(client, intruder.id)
+    body = client.get("/digest/history").text
+    assert 'id="digest-history-empty"' in body
+    assert "2026-W29" not in body
+
+
+def test_digest_permalink_requires_authentication(client: TestClient) -> None:
+    response = client.get("/digest/2026-W29", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_digest_permalink_renders_stored_week(client: TestClient, engine: Engine) -> None:
+    user = _make_user(engine)
+    _make_digest_row(engine, user.id, date(2026, 7, 13))
+    _seed_signal(
+        engine,
+        user_id=user.id,
+        source_url="https://blog.example.com/feed",
+        source_title="Example Blog",
+        guid="archived-1",
+        title="Archived story",
+        url="https://blog.example.com/story",
+        summary="An archived summary.",
+        published_at=datetime(2026, 7, 15, 9, 0, tzinfo=UTC),
+    )
+    _login(client, user.id)
+    response = client.get("/digest/2026-W29")
+    assert response.status_code == 200
+    body = response.text
+    assert "Digest for week 2026-W29" in body
+    assert "2026-07-13" in body
+    assert "Example Blog" in body
+    assert "Archived story" in body
+    # Download link + back link are present.
+    assert 'href="/digest/2026-W29.md"' in body
+    assert 'href="/digest/history"' in body
+
+
+def test_digest_permalink_404_when_no_stored_row(client: TestClient, engine: Engine) -> None:
+    user = _make_user(engine)
+    _login(client, user.id)
+    response = client.get("/digest/2026-W29")
+    assert response.status_code == 404
+
+
+def test_digest_permalink_404_for_invalid_iso_week(client: TestClient, engine: Engine) -> None:
+    user = _make_user(engine)
+    _login(client, user.id)
+    response = client.get("/digest/not-a-week")
+    assert response.status_code == 404
+
+
+def test_digest_permalink_does_not_leak_other_users_digest(
+    client: TestClient, engine: Engine
+) -> None:
+    owner = _make_user(engine, "owner@example.com")
+    intruder = _make_user(engine, "intruder@example.com")
+    _make_digest_row(engine, owner.id, date(2026, 7, 13))
+    _login(client, intruder.id)
+    response = client.get("/digest/2026-W29")
+    assert response.status_code == 404
+
+
+def test_digest_markdown_download_requires_authentication(client: TestClient) -> None:
+    response = client.get("/digest/2026-W29.md", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_digest_markdown_download_returns_markdown(client: TestClient, engine: Engine) -> None:
+    user = _make_user(engine)
+    _make_digest_row(engine, user.id, date(2026, 7, 13))
+    _seed_signal(
+        engine,
+        user_id=user.id,
+        source_url="https://blog.example.com/feed",
+        source_title="Example Blog",
+        guid="md-1",
+        title="Markdown-ready story",
+        url="https://blog.example.com/md",
+        summary=None,
+        published_at=datetime(2026, 7, 15, 9, 0, tzinfo=UTC),
+    )
+    _login(client, user.id)
+    response = client.get("/digest/2026-W29.md")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    disposition = response.headers.get("content-disposition", "")
+    assert "attachment" in disposition
+    assert "signalweek-2026-W29.md" in disposition
+    body = response.text
+    assert body.startswith("# Signalweek digest")
+    assert "Markdown-ready story" in body
+    assert "Example Blog" in body
+    assert "2026-07-13" in body
+
+
+def test_digest_markdown_download_404_when_no_stored_row(
+    client: TestClient, engine: Engine
+) -> None:
+    user = _make_user(engine)
+    _login(client, user.id)
+    response = client.get("/digest/2026-W29.md")
+    assert response.status_code == 404
+
+
+def test_digest_markdown_download_scoped_to_current_user(
+    client: TestClient, engine: Engine
+) -> None:
+    owner = _make_user(engine, "owner@example.com")
+    intruder = _make_user(engine, "intruder@example.com")
+    _make_digest_row(engine, owner.id, date(2026, 7, 13))
+    _login(client, intruder.id)
+    response = client.get("/digest/2026-W29.md")
+    assert response.status_code == 404
+
+
+def _weeks(n: int) -> timedelta:
+    return timedelta(days=7 * n)

@@ -5,6 +5,7 @@
 <h1>This week's digest</h1>
 <h2>Week of {{ digest.window_start.date().isoformat() }} to {{ digest.window_end.date().isoformat() }} (in progress).</h2>
 </hgroup>
+<p><a href="/digest/history">Browse the archive &rarr;</a></p>
 {% if digest.is_empty %}
 <p id="digest-empty"><em>No signals this week yet. Add sources or check back later.</em></p>
 {% else %}

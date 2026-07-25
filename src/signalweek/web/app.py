@@ -13,8 +13,9 @@ the session dependency is defined inside ``create_app`` so it isn't visible in
 module globals.
 """
 
+import re
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from importlib.resources import files
 from typing import Annotated
 
@@ -26,9 +27,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from signalweek.db.models import User
-from signalweek.db.repositories import SourceRepository, UserRepository
+from signalweek.db.repositories import DigestRepository, SourceRepository, UserRepository
 from signalweek.db.session import get_session_factory
-from signalweek.digest import build_digest
+from signalweek.digest import build_digest, render_markdown
 from signalweek.web.security import hash_password, verify_password
 from signalweek.web.sessions import (
     clear_session_cookie,
@@ -38,6 +39,25 @@ from signalweek.web.sessions import (
 from signalweek.web.validate import FeedValidationError, ValidatedFeed, validate_feed_url
 
 MIN_PASSPHRASE_LENGTH = 12
+DIGEST_HISTORY_PAGE_SIZE = 10
+
+_ISO_WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
+
+
+def parse_iso_week(value: str) -> date:
+    """Parse ``YYYY-Www`` into the Monday date of that ISO week."""
+    match = _ISO_WEEK_RE.match(value)
+    if match is None:
+        raise ValueError(f"Invalid ISO week: {value!r}")
+    year, week = int(match.group(1)), int(match.group(2))
+    return date.fromisocalendar(year, week, 1)
+
+
+def format_iso_week(value: date) -> str:
+    """Format the Monday date of an ISO week as ``YYYY-Www``."""
+    iso = value.isocalendar()
+    return f"{iso.year:04d}-W{iso.week:02d}"
+
 
 FeedValidator = Callable[[str], ValidatedFeed]
 Clock = Callable[[], datetime]
@@ -325,6 +345,114 @@ def create_app(
                 "title": "This week's digest",
                 "current_user": current_user,
                 "digest": digest,
+            },
+        )
+
+    @app.get("/digest/history", response_class=HTMLResponse)
+    def digest_history(
+        request: Request,
+        session: Annotated[Session, Depends(_get_session)],
+        current_user: Annotated[User, Depends(_require_current_user)],
+        page: int = 1,
+    ) -> HTMLResponse:
+        current_page = max(page, 1)
+        repo = DigestRepository(session)
+        total = repo.count_for_user(current_user.id)
+        total_pages = max(1, (total + DIGEST_HISTORY_PAGE_SIZE - 1) // DIGEST_HISTORY_PAGE_SIZE)
+        # Clamp beyond-range page numbers to the last available page so a stale
+        # link still shows the tail of the archive rather than an empty page.
+        if current_page > total_pages:
+            current_page = total_pages
+        offset = (current_page - 1) * DIGEST_HISTORY_PAGE_SIZE
+        rows = repo.list_for_user_paginated(
+            current_user.id, offset=offset, limit=DIGEST_HISTORY_PAGE_SIZE
+        )
+        entries = [
+            {
+                "iso_week": format_iso_week(row.week_start),
+                "week_start": row.week_start,
+                "week_end": row.week_start + timedelta(days=7),
+            }
+            for row in rows
+        ]
+        return templates.TemplateResponse(
+            request,
+            "digest_history.html.j2",
+            {
+                "title": "Digest archive",
+                "current_user": current_user,
+                "entries": entries,
+                "page": current_page,
+                "total_pages": total_pages,
+                "total": total,
+                "has_prev": current_page > 1,
+                "has_next": current_page < total_pages,
+            },
+        )
+
+    def _resolve_archived_week(
+        session: Session, user: User, iso_week: str
+    ) -> tuple[date, datetime, datetime]:
+        try:
+            week_start = parse_iso_week(iso_week)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Digest not found") from exc
+        row = DigestRepository(session).get_for_week(user.id, week_start)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Digest not found")
+        window_start = datetime.combine(week_start, time.min, tzinfo=UTC)
+        window_end = window_start + timedelta(days=7)
+        return week_start, window_start, window_end
+
+    @app.get("/digest/{iso_week}.md", response_class=Response, response_model=None)
+    def digest_markdown_download(
+        iso_week: str,
+        session: Annotated[Session, Depends(_get_session)],
+        current_user: Annotated[User, Depends(_require_current_user)],
+    ) -> Response:
+        _, window_start, window_end = _resolve_archived_week(session, current_user, iso_week)
+        digest = build_digest(
+            session,
+            current_user,
+            window_start=window_start,
+            window_end=window_end,
+            now=window_end,
+        )
+        body = render_markdown(digest)
+        filename = f"signalweek-{iso_week}.md"
+        return Response(
+            content=body,
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @app.get("/digest/{iso_week}", response_class=HTMLResponse)
+    def digest_permalink(
+        request: Request,
+        iso_week: str,
+        session: Annotated[Session, Depends(_get_session)],
+        current_user: Annotated[User, Depends(_require_current_user)],
+    ) -> HTMLResponse:
+        week_start, window_start, window_end = _resolve_archived_week(
+            session, current_user, iso_week
+        )
+        digest = build_digest(
+            session,
+            current_user,
+            window_start=window_start,
+            window_end=window_end,
+            now=window_end,
+        )
+        return templates.TemplateResponse(
+            request,
+            "digest_permalink.html.j2",
+            {
+                "title": f"Digest for week {iso_week}",
+                "current_user": current_user,
+                "digest": digest,
+                "iso_week": iso_week,
+                "week_start": week_start,
+                "week_end": week_start + timedelta(days=7),
             },
         )
 
