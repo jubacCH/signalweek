@@ -1,0 +1,18 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<article>
+<hgroup>
+<h1>Your sources</h1>
+<h2>RSS or Atom feeds Signalweek pulls signals from every week.</h2>
+</hgroup>
+{% include "_source_form.html.j2" %}
+<h3>Currently tracking</h3>
+<ul id="sources-list">
+{% for source in sources %}
+{% include "_source_item.html.j2" %}
+{% else %}
+<li id="sources-empty"><em>No sources yet. Add one above.</em></li>
+{% endfor %}
+</ul>
+</article>
+{% endblock %}

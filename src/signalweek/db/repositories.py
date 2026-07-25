@@ -76,6 +76,23 @@ class SourceRepository:
         stmt = select(Source).where(Source.is_active.is_(True)).order_by(Source.id)
         return self.session.execute(stmt).scalars().all()
 
+    def get_for_user(self, source_id: int, user_id: int) -> Source | None:
+        stmt = select(Source).where(Source.id == source_id, Source.user_id == user_id)
+        return self.session.execute(stmt).scalar_one_or_none()
+
+    def delete_for_user(self, source_id: int, user_id: int) -> bool:
+        """Delete ``source_id`` if it belongs to ``user_id``.
+
+        Returns ``True`` if a row was removed. Deliberately scoped to the
+        owning user so a compromised ID cannot delete somebody else's source.
+        """
+        source = self.get_for_user(source_id, user_id)
+        if source is None:
+            return False
+        self.session.delete(source)
+        self.session.flush()
+        return True
+
 
 class SignalRepository:
     """CRUD helpers for :class:`Signal`."""

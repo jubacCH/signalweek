@@ -1,9 +1,11 @@
 """FastAPI application factory.
 
-The web layer stays intentionally small: a landing page, a health check, and a
-sign-up form that creates a local :class:`~signalweek.db.models.User`. The DB
-session dependency defers to :mod:`signalweek.db.session` by default so tests
-can override it with an in-memory SQLite engine.
+The web layer stays intentionally small: a landing page, a health check,
+sign-up / login, and a sources CRUD page powered by HTMX. The DB session
+dependency defers to :mod:`signalweek.db.session` by default so tests can
+override it with an in-memory SQLite engine. The feed validator is likewise
+injectable so tests can drive the ``httpx`` client with a ``MockTransport``
+and skip the real network.
 
 Note: this module intentionally does not use ``from __future__ import
 annotations`` — FastAPI resolves route signatures with ``get_type_hints``, and
@@ -15,18 +17,27 @@ from collections.abc import Callable, Iterator
 from importlib.resources import files
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Form, Request, Response, status
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from signalweek.db.repositories import UserRepository
+from signalweek.db.models import User
+from signalweek.db.repositories import SourceRepository, UserRepository
 from signalweek.db.session import get_session_factory
-from signalweek.web.security import hash_password
+from signalweek.web.security import hash_password, verify_password
+from signalweek.web.sessions import (
+    clear_session_cookie,
+    get_current_user_id,
+    set_session_cookie,
+)
+from signalweek.web.validate import FeedValidationError, ValidatedFeed, validate_feed_url
 
 MIN_PASSPHRASE_LENGTH = 12
+
+FeedValidator = Callable[[str], ValidatedFeed]
 
 
 def _default_session_dependency() -> Iterator[Session]:
@@ -58,11 +69,15 @@ def _validate_signup(email: str, passphrase: str) -> str | None:
 
 def create_app(
     session_dependency: Callable[..., Iterator[Session]] | None = None,
+    feed_validator: FeedValidator | None = None,
 ) -> FastAPI:
     """Build a configured FastAPI application.
 
     Passing ``session_dependency`` lets tests inject an in-memory DB session
-    without touching the process-wide session factory.
+    without touching the process-wide session factory. Passing
+    ``feed_validator`` lets tests replace the real ``httpx``-backed probe with
+    a stub that returns canned :class:`ValidatedFeed` values or raises
+    :class:`FeedValidationError`.
     """
 
     app = FastAPI(title="Signalweek", docs_url=None, redoc_url=None)
@@ -74,20 +89,39 @@ def create_app(
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     session_provider = session_dependency or _default_session_dependency
+    validate_feed: FeedValidator = feed_validator or validate_feed_url
 
     def _get_session() -> Iterator[Session]:
         yield from session_provider()
+
+    def _require_current_user(
+        request: Request,
+        session: Annotated[Session, Depends(_get_session)],
+    ) -> User:
+        user_id = get_current_user_id(request)
+        if user_id is not None:
+            user = UserRepository(session).get(user_id)
+            if user is not None and user.is_active:
+                return user
+        # Unauthenticated: bounce to /login. For HTMX requests we use
+        # HX-Redirect so the client performs a full-page redirect.
+        if request.headers.get("HX-Request"):
+            raise HTTPException(status_code=401, headers={"HX-Redirect": "/login"})
+        raise HTTPException(status_code=303, headers={"Location": "/login"})
 
     @app.get("/health", response_class=JSONResponse)
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/", response_class=HTMLResponse)
-    def landing(request: Request) -> HTMLResponse:
+    def landing(
+        request: Request,
+        session: Annotated[Session, Depends(_get_session)],
+    ) -> HTMLResponse:
         return templates.TemplateResponse(
             request,
             "landing.html.j2",
-            {"title": "Signalweek"},
+            {"title": "Signalweek", "current_user": _optional_user(request, session)},
         )
 
     @app.get("/signup", response_class=HTMLResponse)
@@ -116,7 +150,7 @@ def create_app(
                 error = "An account already exists for that email."
             else:
                 try:
-                    users.create(
+                    user = users.create(
                         email=normalized_email,
                         hashed_password=hash_password(passphrase),
                     )
@@ -124,7 +158,11 @@ def create_app(
                     session.rollback()
                     error = "An account already exists for that email."
                 else:
-                    return RedirectResponse(url="/welcome", status_code=status.HTTP_303_SEE_OTHER)
+                    response = RedirectResponse(
+                        url="/welcome", status_code=status.HTTP_303_SEE_OTHER
+                    )
+                    set_session_cookie(response, user.id)
+                    return response
 
         return templates.TemplateResponse(
             request,
@@ -139,11 +177,130 @@ def create_app(
         )
 
     @app.get("/welcome", response_class=HTMLResponse)
-    def welcome(request: Request) -> HTMLResponse:
+    def welcome(
+        request: Request,
+        session: Annotated[Session, Depends(_get_session)],
+    ) -> HTMLResponse:
         return templates.TemplateResponse(
             request,
             "welcome.html.j2",
-            {"title": "Welcome"},
+            {"title": "Welcome", "current_user": _optional_user(request, session)},
         )
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login_form(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "login.html.j2", {"title": "Log in"})
+
+    @app.post("/login", response_class=HTMLResponse, response_model=None)
+    def login_submit(
+        request: Request,
+        email: Annotated[str, Form()],
+        passphrase: Annotated[str, Form()],
+        session: Annotated[Session, Depends(_get_session)],
+    ) -> Response:
+        normalized_email = _normalize_email(email)
+        user = UserRepository(session).get_by_email(normalized_email)
+        if (
+            user is None
+            or not user.is_active
+            or not verify_password(user.hashed_password, passphrase)
+        ):
+            return templates.TemplateResponse(
+                request,
+                "login.html.j2",
+                {
+                    "title": "Log in",
+                    "error": "Email or passphrase was not recognized.",
+                    "email": normalized_email,
+                },
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        response = RedirectResponse(url="/sources", status_code=status.HTTP_303_SEE_OTHER)
+        set_session_cookie(response, user.id)
+        return response
+
+    @app.post("/logout", response_class=HTMLResponse, response_model=None)
+    def logout() -> Response:
+        response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        clear_session_cookie(response)
+        return response
+
+    @app.get("/sources", response_class=HTMLResponse)
+    def sources_page(
+        request: Request,
+        session: Annotated[Session, Depends(_get_session)],
+        current_user: Annotated[User, Depends(_require_current_user)],
+    ) -> HTMLResponse:
+        sources = SourceRepository(session).list_for_user(current_user.id)
+        return templates.TemplateResponse(
+            request,
+            "sources.html.j2",
+            {
+                "title": "Sources",
+                "sources": sources,
+                "current_user": current_user,
+            },
+        )
+
+    @app.post("/sources", response_class=HTMLResponse, response_model=None)
+    def sources_add(
+        request: Request,
+        url: Annotated[str, Form()],
+        session: Annotated[Session, Depends(_get_session)],
+        current_user: Annotated[User, Depends(_require_current_user)],
+    ) -> Response:
+        raw_url = (url or "").strip()
+        repo = SourceRepository(session)
+        error: str | None = None
+        try:
+            validated = validate_feed(raw_url)
+        except FeedValidationError as exc:
+            error = str(exc)
+        else:
+            if any(s.url == validated.url for s in repo.list_for_user(current_user.id)):
+                error = "That source is already in your list."
+            else:
+                try:
+                    source = repo.create(
+                        user_id=current_user.id,
+                        url=validated.url,
+                        title=validated.title,
+                        type=validated.feed_type,
+                    )
+                except IntegrityError:
+                    session.rollback()
+                    error = "That source is already in your list."
+                else:
+                    return templates.TemplateResponse(
+                        request,
+                        "_source_added.html.j2",
+                        {"source": source},
+                    )
+
+        return templates.TemplateResponse(
+            request,
+            "_source_form.html.j2",
+            {"error": error, "url": raw_url},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    @app.delete("/sources/{source_id}", response_class=HTMLResponse, response_model=None)
+    def sources_remove(
+        source_id: int,
+        session: Annotated[Session, Depends(_get_session)],
+        current_user: Annotated[User, Depends(_require_current_user)],
+    ) -> Response:
+        removed = SourceRepository(session).delete_for_user(source_id, current_user.id)
+        if not removed:
+            raise HTTPException(status_code=404, detail="Source not found")
+        # Empty body: HTMX swaps this in for the row, effectively deleting it.
+        return HTMLResponse(content="", status_code=status.HTTP_200_OK)
+
+    def _optional_user(request: Request, session: Session) -> User | None:
+        user_id = get_current_user_id(request)
+        if user_id is None:
+            return None
+        user = UserRepository(session).get(user_id)
+        return user if user is not None and user.is_active else None
 
     return app
