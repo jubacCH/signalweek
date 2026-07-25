@@ -61,6 +61,8 @@ def build_app(
     routes: list[Route | Mount] = [
         Route("/", handlers.index, name="index"),
         Route("/issues", handlers.archive, name="archive"),
+        Route("/issues/{iso_week}.md", handlers.issue_markdown, name="issue_markdown"),
+        Route("/issues/{iso_week}.json", handlers.issue_json, name="issue_json"),
         Route("/issues/{iso_week}", handlers.issue, name="issue"),
         Mount("/static", app=StaticFiles(directory=str(STATIC_DIR)), name="static"),
     ]
