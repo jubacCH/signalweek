@@ -14,6 +14,7 @@ module globals.
 """
 
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from importlib.resources import files
 from typing import Annotated
 
@@ -27,6 +28,7 @@ from sqlalchemy.orm import Session
 from signalweek.db.models import User
 from signalweek.db.repositories import SourceRepository, UserRepository
 from signalweek.db.session import get_session_factory
+from signalweek.digest import build_digest
 from signalweek.web.security import hash_password, verify_password
 from signalweek.web.sessions import (
     clear_session_cookie,
@@ -38,6 +40,20 @@ from signalweek.web.validate import FeedValidationError, ValidatedFeed, validate
 MIN_PASSPHRASE_LENGTH = 12
 
 FeedValidator = Callable[[str], ValidatedFeed]
+Clock = Callable[[], datetime]
+
+
+def _default_clock() -> datetime:
+    return datetime.now(UTC)
+
+
+def current_week_window(now: datetime) -> tuple[datetime, datetime]:
+    """Return ``[Monday 00:00 UTC, next Monday 00:00 UTC)`` bracketing ``now``."""
+    aware = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
+    aware = aware.astimezone(UTC)
+    start_of_day = aware.replace(hour=0, minute=0, second=0, microsecond=0)
+    monday = start_of_day - timedelta(days=aware.weekday())
+    return monday, monday + timedelta(days=7)
 
 
 def _default_session_dependency() -> Iterator[Session]:
@@ -70,6 +86,7 @@ def _validate_signup(email: str, passphrase: str) -> str | None:
 def create_app(
     session_dependency: Callable[..., Iterator[Session]] | None = None,
     feed_validator: FeedValidator | None = None,
+    clock: Clock | None = None,
 ) -> FastAPI:
     """Build a configured FastAPI application.
 
@@ -77,7 +94,8 @@ def create_app(
     without touching the process-wide session factory. Passing
     ``feed_validator`` lets tests replace the real ``httpx``-backed probe with
     a stub that returns canned :class:`ValidatedFeed` values or raises
-    :class:`FeedValidationError`.
+    :class:`FeedValidationError`. Passing ``clock`` lets tests freeze "now" so
+    the in-progress week window is deterministic.
     """
 
     app = FastAPI(title="Signalweek", docs_url=None, redoc_url=None)
@@ -90,6 +108,7 @@ def create_app(
 
     session_provider = session_dependency or _default_session_dependency
     validate_feed: FeedValidator = feed_validator or validate_feed_url
+    now_provider: Clock = clock or _default_clock
 
     def _get_session() -> Iterator[Session]:
         yield from session_provider()
@@ -282,6 +301,31 @@ def create_app(
             "_source_form.html.j2",
             {"error": error, "url": raw_url},
             status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    @app.get("/digest", response_class=HTMLResponse)
+    def digest_page(
+        request: Request,
+        session: Annotated[Session, Depends(_get_session)],
+        current_user: Annotated[User, Depends(_require_current_user)],
+    ) -> HTMLResponse:
+        now = now_provider()
+        window_start, window_end = current_week_window(now)
+        digest = build_digest(
+            session,
+            current_user,
+            window_start=window_start,
+            window_end=window_end,
+            now=now,
+        )
+        return templates.TemplateResponse(
+            request,
+            "digest.html.j2",
+            {
+                "title": "This week's digest",
+                "current_user": current_user,
+                "digest": digest,
+            },
         )
 
     @app.delete("/sources/{source_id}", response_class=HTMLResponse, response_model=None)

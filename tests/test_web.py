@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,9 +14,10 @@ from sqlalchemy.pool import StaticPool
 
 from signalweek.db.base import Base
 from signalweek.db.models import User
-from signalweek.db.repositories import SourceRepository, UserRepository
+from signalweek.db.repositories import SignalRepository, SourceRepository, UserRepository
 from signalweek.db.session import create_session_factory
 from signalweek.web import create_app
+from signalweek.web.app import current_week_window
 from signalweek.web.security import hash_password, verify_password
 from signalweek.web.sessions import SESSION_COOKIE_NAME, encode_session
 from signalweek.web.validate import FeedValidationError, ValidatedFeed
@@ -69,8 +71,11 @@ def validator() -> StubValidator:
     return StubValidator()
 
 
-@pytest.fixture()
-def client(engine: Engine, validator: StubValidator) -> Iterator[TestClient]:
+def _make_client(
+    engine: Engine,
+    validator: StubValidator,
+    clock: Callable[[], datetime] | None = None,
+) -> TestClient:
     factory = create_session_factory(engine)
 
     def _session_dep() -> Iterator[Session]:
@@ -84,8 +89,13 @@ def client(engine: Engine, validator: StubValidator) -> Iterator[TestClient]:
         finally:
             session.close()
 
-    app = create_app(session_dependency=_session_dep, feed_validator=validator)
-    with TestClient(app) as c:
+    app = create_app(session_dependency=_session_dep, feed_validator=validator, clock=clock)
+    return TestClient(app)
+
+
+@pytest.fixture()
+def client(engine: Engine, validator: StubValidator) -> Iterator[TestClient]:
+    with _make_client(engine, validator) as c:
         yield c
 
 
@@ -420,3 +430,126 @@ def test_delete_source_requires_authentication(client: TestClient) -> None:
     response = client.delete("/sources/1", headers={"HX-Request": "true"})
     assert response.status_code == 401
     assert response.headers.get("hx-redirect") == "/login"
+
+
+# ---------------------------------------------------------------------------
+# Current-week digest view
+# ---------------------------------------------------------------------------
+
+
+# Wednesday 2026-07-22 12:00 UTC — mid-week so the window covers Mon 20 -> Mon 27.
+FROZEN_NOW = datetime(2026, 7, 22, 12, 0, tzinfo=UTC)
+FROZEN_WEEK_START = datetime(2026, 7, 20, 0, 0, tzinfo=UTC)
+FROZEN_WEEK_END = datetime(2026, 7, 27, 0, 0, tzinfo=UTC)
+
+
+@pytest.fixture()
+def frozen_client(engine: Engine, validator: StubValidator) -> Iterator[TestClient]:
+    with _make_client(engine, validator, clock=lambda: FROZEN_NOW) as c:
+        yield c
+
+
+def test_current_week_window_returns_monday_bounded_utc_week() -> None:
+    # A Wednesday afternoon lands inside the Mon 20 -> Mon 27 window.
+    start, end = current_week_window(datetime(2026, 7, 22, 15, 30, tzinfo=UTC))
+    assert start == datetime(2026, 7, 20, 0, 0, tzinfo=UTC)
+    assert end == datetime(2026, 7, 27, 0, 0, tzinfo=UTC)
+
+    # A Monday at 00:00 UTC is the start of its own week.
+    start, end = current_week_window(datetime(2026, 7, 20, 0, 0, tzinfo=UTC))
+    assert start == datetime(2026, 7, 20, 0, 0, tzinfo=UTC)
+    assert end == datetime(2026, 7, 27, 0, 0, tzinfo=UTC)
+
+    # A Sunday at 23:59:59 still belongs to the week that started the prior Monday.
+    start, end = current_week_window(datetime(2026, 7, 26, 23, 59, 59, tzinfo=UTC))
+    assert start == datetime(2026, 7, 20, 0, 0, tzinfo=UTC)
+    assert end == datetime(2026, 7, 27, 0, 0, tzinfo=UTC)
+
+
+def test_digest_requires_authentication(client: TestClient) -> None:
+    response = client.get("/digest", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_digest_empty_state_when_user_has_no_signals(
+    frozen_client: TestClient, engine: Engine
+) -> None:
+    user = _make_user(engine)
+    _login(frozen_client, user.id)
+    response = frozen_client.get("/digest")
+    assert response.status_code == 200
+    body = response.text
+    assert "This week's digest" in body
+    # Window is rendered as Mon 2026-07-20 -> Mon 2026-07-27.
+    assert "2026-07-20" in body
+    assert "2026-07-27" in body
+    assert 'id="digest-empty"' in body
+    assert "No signals this week" in body
+
+
+def test_digest_renders_in_window_signals_for_current_user(
+    frozen_client: TestClient, engine: Engine
+) -> None:
+    user = _make_user(engine)
+    with Session(engine) as session:
+        source = SourceRepository(session).create(
+            user_id=user.id, url="https://blog.example.com/feed", title="Example Blog"
+        )
+        sig_repo = SignalRepository(session)
+        sig_repo.create(
+            source_id=source.id,
+            guid="in-1",
+            title="Fresh in-window post",
+            url="https://blog.example.com/fresh",
+            summary="A summary that shows up in the rendered digest.",
+            published_at=datetime(2026, 7, 21, 9, 0, tzinfo=UTC),
+        )
+        sig_repo.create(
+            source_id=source.id,
+            guid="out-1",
+            title="Stale pre-window post",
+            url="https://blog.example.com/stale",
+            summary=None,
+            published_at=datetime(2026, 7, 10, 9, 0, tzinfo=UTC),
+        )
+        session.commit()
+
+    _login(frozen_client, user.id)
+    response = frozen_client.get("/digest")
+    assert response.status_code == 200
+    body = response.text
+    assert "Example Blog" in body
+    assert "Fresh in-window post" in body
+    assert "A summary that shows up in the rendered digest." in body
+    # Signals outside the [Mon, next Mon) window are excluded.
+    assert "Stale pre-window post" not in body
+    # The empty-state marker is gone once there is content.
+    assert 'id="digest-empty"' not in body
+
+
+def test_digest_does_not_leak_other_users_signals(
+    frozen_client: TestClient, engine: Engine
+) -> None:
+    owner = _make_user(engine, "owner@example.com")
+    intruder = _make_user(engine, "intruder@example.com")
+    with Session(engine) as session:
+        source = SourceRepository(session).create(
+            user_id=owner.id, url="https://blog.example.com/feed", title="Owner Blog"
+        )
+        SignalRepository(session).create(
+            source_id=source.id,
+            guid="only-owner",
+            title="Owner-only story",
+            url="https://blog.example.com/owner",
+            summary=None,
+            published_at=datetime(2026, 7, 21, 9, 0, tzinfo=UTC),
+        )
+        session.commit()
+
+    _login(frozen_client, intruder.id)
+    response = frozen_client.get("/digest")
+    assert response.status_code == 200
+    assert "Owner-only story" not in response.text
+    assert "Owner Blog" not in response.text
+    assert "No signals this week" in response.text

@@ -1,0 +1,28 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<article id="digest">
+<hgroup>
+<h1>This week's digest</h1>
+<h2>Week of {{ digest.window_start.date().isoformat() }} to {{ digest.window_end.date().isoformat() }} (in progress).</h2>
+</hgroup>
+{% if digest.is_empty %}
+<p id="digest-empty"><em>No signals this week yet. Add sources or check back later.</em></p>
+{% else %}
+{% for section in digest.sections %}
+<section>
+<h3><a href="{{ section.source_url }}">{{ section.source_title }}</a></h3>
+<ul>
+{% for item in section.items %}
+<li>
+<a href="{{ item.url }}">{{ item.title }}</a>{% if item.published_at %} &mdash; <time>{{ item.published_at.strftime('%Y-%m-%d %H:%M UTC') }}</time>{% endif +%}
+{% if item.summary %}
+<p>{{ item.summary }}</p>
+{% endif %}
+</li>
+{% endfor %}
+</ul>
+</section>
+{% endfor %}
+{% endif %}
+</article>
+{% endblock %}
