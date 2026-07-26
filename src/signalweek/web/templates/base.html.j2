@@ -1,17 +1,21 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Signalweek — a weekly digest of what actually mattered. Your feeds and subscriptions, ranked into one calm weekly read.">
+<meta name="color-scheme" content="light dark">
 <title>{{ title }} &mdash; Signalweek</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='6' fill='%234b47e6'/%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%234b47e6' stroke-width='2' opacity='0.4'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="{{ url_for('static', path='pico.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', path='signalweek.css') }}">
 <script src="{{ url_for('static', path='htmx.min.js') }}" defer></script>
 </head>
 <body>
-<main class="container">
+<header class="site-header">
 <nav>
 <ul>
-<li><strong><a href="/">Signalweek</a></strong></li>
+<li><a href="/" class="wordmark"><span class="dot"></span>Signalweek</a></li>
 </ul>
 <ul>
 {% if current_user %}
@@ -28,7 +32,15 @@
 {% endif %}
 </ul>
 </nav>
+</header>
+<main class="container">
 {% block content %}{% endblock %}
 </main>
+<footer class="site-footer">
+<div>
+<span>Signalweek &mdash; the week in signal, not noise.</span>
+<span><a href="/digest/history">Archive</a></span>
+</div>
+</footer>
 </body>
 </html>
