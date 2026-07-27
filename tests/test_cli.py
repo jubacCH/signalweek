@@ -27,6 +27,7 @@ from signalweek.sources import (
     issues_table,
     items_table,
     raw_items_table,
+    source_candidates_table,
     sources_metadata,
     sources_table,
 )
@@ -280,6 +281,66 @@ class TestSourcesList:
         # State flags render.
         assert "active" in out
         assert "inactive" in out
+
+
+class TestSourcesCandidates:
+    def test_candidates_empty_registry(self, engine: Engine) -> None:
+        code, out, _ = _run(engine, ["sources", "candidates"])
+        assert code == EXIT_OK
+        assert "no source candidates recorded" in out
+
+    def test_candidates_lists_pending_before_promoted(self, engine: Engine) -> None:
+        with engine.begin() as conn:
+            conn.execute(
+                source_candidates_table.insert().values(
+                    domain="pending.example",
+                    first_seen_week=date(2026, 7, 6),
+                    last_seen_week=date(2026, 7, 20),
+                    cite_count=4,
+                    distinct_weeks_count=2,
+                    promoted=False,
+                )
+            )
+            conn.execute(
+                source_candidates_table.insert().values(
+                    domain="already.example",
+                    first_seen_week=date(2026, 6, 1),
+                    last_seen_week=date(2026, 7, 27),
+                    cite_count=9,
+                    distinct_weeks_count=5,
+                    promoted=True,
+                )
+            )
+        code, out, _ = _run(engine, ["sources", "candidates"])
+        assert code == EXIT_OK
+        pending_pos = out.find("pending.example")
+        promoted_pos = out.find("already.example")
+        assert pending_pos != -1 and promoted_pos != -1
+        # Pending must sort before promoted.
+        assert pending_pos < promoted_pos
+        assert "cites=4" in out
+        assert "weeks=2" in out
+        assert "cites=9" in out
+
+    def test_candidates_honours_limit(self, engine: Engine) -> None:
+        with engine.begin() as conn:
+            for i in range(3):
+                conn.execute(
+                    source_candidates_table.insert().values(
+                        domain=f"d{i}.example",
+                        first_seen_week=date(2026, 7, 6),
+                        last_seen_week=date(2026, 7, 20),
+                        cite_count=5 - i,
+                        distinct_weeks_count=2,
+                        promoted=False,
+                    )
+                )
+        code, out, _ = _run(engine, ["sources", "candidates", "--limit", "1"])
+        assert code == EXIT_OK
+        # Only the highest-cited row should render.
+        assert "d0.example" in out
+        assert "d1.example" not in out
+        assert "d2.example" not in out
 
 
 class TestSourcesDisable:

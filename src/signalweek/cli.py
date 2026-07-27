@@ -16,6 +16,7 @@ Usage::
         --category models [--name NAME]
     python -m signalweek.cli sources list
     python -m signalweek.cli sources disable --url URL
+    python -m signalweek.cli sources candidates [--limit N]
 
     python -m signalweek.cli issue build   [--week YYYY-MM-DD]
     python -m signalweek.cli issue verify  (--week YYYY-MM-DD | --issue-id ID)
@@ -47,6 +48,7 @@ from signalweek.sources import (
     SOURCE_KINDS,
     SourceSpec,
     issues_table,
+    source_candidates_table,
     sources_table,
     upsert_sources,
 )
@@ -151,6 +153,18 @@ def _register_sources(subparsers: argparse._SubParsersAction) -> None:
     )
     disable.add_argument("--url", required=True, help="Public feed URL to disable.")
     disable.set_defaults(_handler=_cmd_sources_disable)
+
+    candidates = sources_sub.add_parser(
+        "candidates",
+        help="List cited-domain candidates awaiting or already past promotion.",
+    )
+    candidates.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum number of rows to print (default: all).",
+    )
+    candidates.set_defaults(_handler=_cmd_sources_candidates)
 
 
 def _register_issue(subparsers: argparse._SubParsersAction) -> None:
@@ -276,6 +290,44 @@ def _cmd_sources_disable(
         sources_table.update().where(sources_table.c.id == int(row.id)).values(active=False)
     )
     print(f"disabled source {url}", file=out)
+    return EXIT_OK
+
+
+def _cmd_sources_candidates(
+    args: argparse.Namespace,
+    conn: Connection,
+    out: TextIO,
+    _err: TextIO,
+    _now: datetime,
+) -> int:
+    stmt = select(
+        source_candidates_table.c.id,
+        source_candidates_table.c.domain,
+        source_candidates_table.c.cite_count,
+        source_candidates_table.c.distinct_weeks_count,
+        source_candidates_table.c.first_seen_week,
+        source_candidates_table.c.last_seen_week,
+        source_candidates_table.c.promoted,
+    ).order_by(
+        source_candidates_table.c.promoted.asc(),
+        source_candidates_table.c.cite_count.desc(),
+        source_candidates_table.c.domain.asc(),
+    )
+    if args.limit is not None:
+        stmt = stmt.limit(int(args.limit))
+    rows = conn.execute(stmt).all()
+    if not rows:
+        print("no source candidates recorded", file=out)
+        return EXIT_OK
+    for row in rows:
+        state = "promoted" if bool(row.promoted) else "pending"
+        print(
+            f"{int(row.id):>4}  {state:<8}  cites={int(row.cite_count):<4} "
+            f"weeks={int(row.distinct_weeks_count):<3} "
+            f"first={row.first_seen_week.isoformat()} last={row.last_seen_week.isoformat()} "
+            f"{row.domain}",
+            file=out,
+        )
     return EXIT_OK
 
 

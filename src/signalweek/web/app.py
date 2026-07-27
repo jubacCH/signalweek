@@ -21,6 +21,7 @@ from sqlalchemy.engine import Engine
 
 from signalweek.db.session import get_engine
 from signalweek.ingest.classify import CATEGORIES, CATEGORY_LABELS
+from signalweek.web.admin import register_admin_router, resolve_admin_token
 from signalweek.web.archive import (
     load_published_issue_by_week,
     load_published_issues,
@@ -35,12 +36,15 @@ PRODUCT_TAGLINE = (
 )
 
 
-def create_app(engine: Engine | None = None) -> FastAPI:
+def create_app(engine: Engine | None = None, admin_token: str | None = None) -> FastAPI:
     """Build a configured FastAPI application.
 
     ``engine`` lets tests inject an isolated database; production callers
     can omit it and the app resolves the process-wide engine lazily on
-    every request.
+    every request. ``admin_token`` overrides the ``SIGNALWEEK_ADMIN_TOKEN``
+    environment variable — when neither is set the ``/admin`` routes are
+    mounted but respond with 503 so the surface is discoverable without
+    being exploitable.
     """
 
     app = FastAPI(title="Signalweek", docs_url="/docs", redoc_url=None)
@@ -63,6 +67,12 @@ def create_app(engine: Engine | None = None) -> FastAPI:
 
     def _resolve_engine() -> Engine:
         return engine if engine is not None else get_engine()
+
+    register_admin_router(
+        app,
+        _resolve_engine,
+        admin_token=resolve_admin_token(admin_token),
+    )
 
     @app.get("/health", response_class=JSONResponse)
     def health() -> dict[str, str]:
