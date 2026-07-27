@@ -8,9 +8,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from signalweek.db import models  # noqa: F401 - ensure model metadata is registered
-from signalweek.db.base import Base
 from signalweek.db.session import DEFAULT_DATABASE_URL
+from signalweek.sources import sources_metadata
 
 config = context.config
 
@@ -23,7 +22,10 @@ existing_url = config.get_main_option("sqlalchemy.url")
 resolved_url = existing_url or os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URL
 config.set_main_option("sqlalchemy.url", resolved_url)
 
-target_metadata = Base.metadata
+# The curated-digest schema is defined as SQLAlchemy Core tables — no
+# declarative ORM base. Handing this metadata to Alembic lets ``--autogenerate``
+# still diff against the shipped Core definitions.
+target_metadata = sources_metadata
 
 
 def run_migrations_offline() -> None:
