@@ -1,0 +1,28 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<article id="issues-archive">
+<hgroup>
+<h1>Signalweek archive</h1>
+<h2>Every published weekly issue, most recent first.</h2>
+</hgroup>
+{% if issues %}
+<ul class="issues-index">
+{% for issue in issues %}
+<li>
+<a href="/issues/{{ issue.week_of.isoformat() }}">Week of {{ issue.week_of.isoformat() }}</a>
+{% if issue.published_at %}
+<small>
+<time datetime="{{ issue.published_at.isoformat() }}">Published {{ issue.published_at.strftime('%B %d, %Y') }}</time>
+&middot; {{ issue.total_items }} stories
+</small>
+{% else %}
+<small>{{ issue.total_items }} stories</small>
+{% endif %}
+</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>No issues have been published yet. Check back after the first Monday.</p>
+{% endif %}
+</article>
+{% endblock %}
