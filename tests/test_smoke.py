@@ -15,7 +15,6 @@ def test_core_dependencies_importable():
         "sqlalchemy",
         "httpx",
         "feedparser",
-        "apscheduler",
         "jinja2",
     ):
         importlib.import_module(module_name)

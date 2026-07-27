@@ -1,6 +1,5 @@
-"""FastAPI web layer: landing page, health check, and user sign-up."""
+"""FastAPI web layer: public landing page and health check."""
 
 from signalweek.web.app import create_app
-from signalweek.web.security import hash_password, verify_password
 
-__all__ = ["create_app", "hash_password", "verify_password"]
+__all__ = ["create_app"]
