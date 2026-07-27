@@ -1,31 +1,38 @@
-"""RSS/Atom feed ingestion.
+"""RSS/Atom ingest into ``raw_items``.
 
 The pipeline is intentionally small and testable:
 
 * :func:`fetch_feed` downloads raw feed bytes with ``httpx``.
 * :func:`parse_feed` runs the bytes through ``feedparser`` and returns a
-  normalized :class:`FetchedEntry` per item — entries without a usable link are
-  discarded.
-* :func:`ingest_source` glues the two together and persists new entries as
-  :class:`~signalweek.db.models.Signal` rows, deduplicating on the canonical
-  URL both within the incoming batch and against rows already stored for the
-  source.
+  normalized :class:`FetchedEntry` per item — entries without a usable link
+  are discarded and duplicates within one feed collapse on their canonical
+  URL.
+* :func:`ingest_source` fetches a single active source and writes new
+  ``raw_items`` rows for it, dedup'd on ``(source_id, canonical_url)``.
+* :func:`ingest_all_active` scans the ``sources`` table for ``active=True``
+  rows and runs :func:`ingest_source` for each — this is what a scheduler
+  calls once per tick.
+
+The pipeline is source-neutral: every active source is treated the same way,
+including any Hacker News feed (which enters as a normal RSS source under
+the ``industry_moves`` category, not a first-class fast path).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from time import struct_time
 from typing import Any
 
 import feedparser
 import httpx
+from sqlalchemy import select
+from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
-from signalweek.db.models import Signal, Source
-from signalweek.db.repositories import SignalRepository
 from signalweek.ingest.canonical import canonicalize_url
+from signalweek.sources import raw_items_table, sources_table
 
 DEFAULT_TIMEOUT_SECONDS = 15.0
 DEFAULT_USER_AGENT = "signalweek-ingest/0.1 (+https://signalweek.example)"
@@ -39,24 +46,53 @@ class FetchError(RuntimeError):
 class FetchedEntry:
     """A single feed entry after normalization.
 
-    ``url`` is the canonical form used for dedup; ``guid`` mirrors it so the
-    existing ``(source_id, guid)`` uniqueness constraint on :class:`Signal`
-    enforces dedup at the database level as well.
+    ``canonical_url`` is the dedup key; ``url`` keeps the raw link so the
+    stored row still points at the exact URL the feed published.
     """
 
-    guid: str
     title: str
     url: str
-    summary: str | None
+    canonical_url: str
+    body: str | None
     published_at: datetime | None
+
+
+@dataclass(frozen=True)
+class SourceIngestResult:
+    """Outcome of ingesting a single source."""
+
+    source_id: int
+    url: str
+    inserted: int
+    skipped: int
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class IngestRunResult:
+    """Aggregate outcome of :func:`ingest_all_active`."""
+
+    per_source: list[SourceIngestResult] = field(default_factory=list)
+
+    @property
+    def total_inserted(self) -> int:
+        return sum(r.inserted for r in self.per_source)
+
+    @property
+    def total_skipped(self) -> int:
+        return sum(r.skipped for r in self.per_source)
+
+    @property
+    def errors(self) -> list[SourceIngestResult]:
+        return [r for r in self.per_source if r.error is not None]
 
 
 def fetch_feed(url: str, *, client: httpx.Client | None = None) -> bytes:
     """Download the raw bytes of a feed.
 
     A caller-provided ``client`` is used as-is so tests can inject a
-    ``MockTransport``; otherwise a short-lived client with sensible defaults is
-    created for the single request.
+    ``MockTransport``; otherwise a short-lived client with sensible defaults
+    is created for the single request.
     """
     headers = {
         "User-Agent": DEFAULT_USER_AGENT,
@@ -89,10 +125,10 @@ def parse_feed(content: bytes | str) -> list[FetchedEntry]:
         seen.add(canonical)
         entries.append(
             FetchedEntry(
-                guid=canonical,
                 title=_entry_title(raw),
-                url=canonical,
-                summary=_entry_summary(raw),
+                url=link,
+                canonical_url=canonical,
+                body=_entry_body(raw),
                 published_at=_entry_published_at(raw),
             )
         )
@@ -100,36 +136,112 @@ def parse_feed(content: bytes | str) -> list[FetchedEntry]:
 
 
 def ingest_source(
-    session: Session,
-    source: Source,
+    bind: Session | Connection,
     *,
+    source_id: int,
+    url: str,
     client: httpx.Client | None = None,
     content: bytes | str | None = None,
-) -> list[Signal]:
-    """Fetch ``source``, parse it, and persist new signals.
+    now: datetime | None = None,
+) -> SourceIngestResult:
+    """Fetch a single source and persist any new items into ``raw_items``.
 
     Passing ``content`` skips the network fetch and is intended for tests or
-    replay from cached bytes. Existing signals are looked up by canonical URL
-    (stored as ``guid``) so re-ingesting a feed is idempotent.
+    replay from cached bytes. Existing rows are looked up by
+    ``(source_id, canonical_url)`` so re-ingesting a feed is idempotent.
     """
-    raw = content if content is not None else fetch_feed(source.url, client=client)
+    raw = content if content is not None else fetch_feed(url, client=client)
     entries = parse_feed(raw)
 
-    repo = SignalRepository(session)
-    created: list[Signal] = []
+    connection = _as_connection(bind)
+    stamp = now or datetime.now(UTC)
+
+    existing = _existing_canonical_urls(connection, source_id)
+
+    inserted = 0
+    skipped = 0
     for entry in entries:
-        if repo.get_by_guid(source.id, entry.guid) is not None:
+        if entry.canonical_url in existing:
+            skipped += 1
             continue
-        signal = repo.create(
-            source_id=source.id,
-            guid=entry.guid,
-            title=entry.title,
-            url=entry.url,
-            summary=entry.summary,
-            published_at=entry.published_at,
+        connection.execute(
+            raw_items_table.insert().values(
+                source_id=source_id,
+                url=entry.url,
+                canonical_url=entry.canonical_url,
+                title=entry.title,
+                body=entry.body,
+                fetched_at=stamp,
+                first_seen_at=stamp,
+            )
         )
-        created.append(signal)
-    return created
+        existing.add(entry.canonical_url)
+        inserted += 1
+
+    return SourceIngestResult(
+        source_id=source_id,
+        url=url,
+        inserted=inserted,
+        skipped=skipped,
+    )
+
+
+def ingest_all_active(
+    bind: Session | Connection,
+    *,
+    client: httpx.Client | None = None,
+    now: datetime | None = None,
+) -> IngestRunResult:
+    """Run one ingest pass over every ``active`` row in ``sources``.
+
+    Errors from individual sources are captured in the returned result rather
+    than aborting the whole run — one broken feed should not starve the
+    others. Callers that want to react to failures can inspect
+    :attr:`IngestRunResult.errors`.
+    """
+    connection = _as_connection(bind)
+
+    stmt = (
+        select(sources_table.c.id, sources_table.c.url)
+        .where(sources_table.c.active.is_(True))
+        .order_by(sources_table.c.id)
+    )
+    rows = connection.execute(stmt).all()
+
+    results: list[SourceIngestResult] = []
+    for row in rows:
+        try:
+            results.append(
+                ingest_source(
+                    connection,
+                    source_id=row.id,
+                    url=row.url,
+                    client=client,
+                    now=now,
+                )
+            )
+        except FetchError as exc:
+            results.append(
+                SourceIngestResult(
+                    source_id=row.id,
+                    url=row.url,
+                    inserted=0,
+                    skipped=0,
+                    error=str(exc),
+                )
+            )
+    return IngestRunResult(per_source=results)
+
+
+def _existing_canonical_urls(connection: Connection, source_id: int) -> set[str]:
+    stmt = select(raw_items_table.c.canonical_url).where(raw_items_table.c.source_id == source_id)
+    return set(connection.execute(stmt).scalars().all())
+
+
+def _as_connection(bind: Session | Connection) -> Connection:
+    if isinstance(bind, Session):
+        return bind.connection()
+    return bind
 
 
 def _entry_link(raw: Any) -> str | None:
@@ -152,7 +264,7 @@ def _entry_title(raw: Any) -> str:
     return "(untitled)"
 
 
-def _entry_summary(raw: Any) -> str | None:
+def _entry_body(raw: Any) -> str | None:
     for key in ("summary", "description"):
         value = raw.get(key)
         if isinstance(value, str) and value.strip():

@@ -1,4 +1,4 @@
-"""Static source registry for the curated digest pipeline.
+"""Static source registry and shared Core-table definitions.
 
 The editorial pipeline pulls from a fixed, checked-in list of feeds rather
 than accepting user-added sources. This module owns:
@@ -9,12 +9,12 @@ than accepting user-added sources. This module owns:
 * :func:`upsert_sources` / :func:`upsert_sources_from_yaml` — write the
   parsed specs into the ``sources`` table, updating rows in place when the
   URL already exists so re-running the loader is idempotent.
-
-The upsert works against a SQLAlchemy Core :class:`~sqlalchemy.Table`
-definition that mirrors the columns created by migration
-``0003_curated_digest_schema``. This deliberately avoids the ORM so tests
-and callers do not depend on the retired ``User``/``Source`` declarative
-models still living in :mod:`signalweek.db.models`.
+* :data:`sources_table` / :data:`raw_items_table` — SQLAlchemy Core tables
+  that mirror the columns created by migration ``0003_curated_digest_schema``.
+  The ingest pipeline writes into ``raw_items`` and reads from ``sources``
+  through these Core definitions rather than through ORM models, so tests and
+  callers do not depend on the retired ``User``/``Source`` declarative models
+  still living in :mod:`signalweek.db.models`.
 """
 
 from __future__ import annotations
@@ -28,10 +28,14 @@ import yaml
 from sqlalchemy import (
     Boolean,
     Column,
+    DateTime,
+    ForeignKey,
     Integer,
     MetaData,
     String,
     Table,
+    Text,
+    UniqueConstraint,
     select,
 )
 from sqlalchemy.engine import Connection
@@ -62,6 +66,32 @@ sources_table = Table(
     Column("kind", String(32), nullable=False),
     Column("category_hint", String(64), nullable=True),
     Column("active", Boolean, nullable=False, default=True, server_default="1"),
+)
+
+# Raw articles/posts ingested from each source, before clustering/summarization.
+# Mirrors the ``raw_items`` table created by migration 0003.
+raw_items_table = Table(
+    "raw_items",
+    sources_metadata,
+    Column(
+        "id",
+        Integer,
+        primary_key=True,
+    ),
+    Column(
+        "source_id",
+        Integer,
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    ),
+    Column("url", String(2048), nullable=False),
+    Column("canonical_url", String(2048), nullable=False, index=True),
+    Column("title", String(1024), nullable=False),
+    Column("body", Text, nullable=True),
+    Column("fetched_at", DateTime(timezone=True), nullable=False),
+    Column("first_seen_at", DateTime(timezone=True), nullable=False, index=True),
+    UniqueConstraint("source_id", "canonical_url", name="uq_raw_items_source_canonical"),
 )
 
 
