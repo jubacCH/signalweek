@@ -1,18 +1,67 @@
 {% extends "base.html.j2" %}
 {% block content %}
 <section class="hero">
-<span class="eyebrow">Weekly &middot; curated &middot; calm</span>
+<span class="eyebrow">Weekly &middot; ranked &middot; calm</span>
 <hgroup>
-<h1>Signalweek</h1>
-<h2>A weekly digest of what actually mattered.</h2>
+<h1>A quieter week, actually read.</h1>
+<h2>Signalweek turns feeds, subscriptions, and inbox noise into one ranked digest every Monday.</h2>
 </hgroup>
 <p>
-Signalweek turns your feeds, subscriptions, and inbox noise into a single
-ranked digest every week &mdash; so you can stop skimming and start reading.
+Stop skimming seven days of infinite scroll. Point Signalweek at the sources you
+already follow and get a single, calmly organised read at the start of every week
+&mdash; so you can catch what actually mattered and get on with the rest.
 </p>
 <div class="cta">
 <a href="/signup" role="button">Create your account</a>
 <a href="/login">or log in</a>
 </div>
+<div class="trust-bar" aria-label="What you get">
+<span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 3.5 6 11 2.5 7.5l1-1L6 9l6.5-6.5z"/></svg> Ranks by signal, not recency</span>
+<span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 3.5 6 11 2.5 7.5l1-1L6 9l6.5-6.5z"/></svg> RSS, Atom, and Hacker News</span>
+<span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 3.5 6 11 2.5 7.5l1-1L6 9l6.5-6.5z"/></svg> Every archive exports as Markdown</span>
+</div>
 </section>
+
+<section class="how-it-works" aria-labelledby="how-heading">
+<h2 id="how-heading" class="section-heading">How it works</h2>
+<ol class="steps">
+<li>
+<h3>Add your sources</h3>
+<p>Paste feed URLs from the blogs, newsletters, and sites you already read. RSS or Atom, that's it.</p>
+</li>
+<li>
+<h3>We collect the week</h3>
+<p>Signalweek pulls new items across every source and groups them into a single ranked digest &mdash; deduped and quiet by design.</p>
+</li>
+<li>
+<h3>Read one calm page</h3>
+<p>Every Monday your digest is ready in the app and as Markdown. Skim it in five minutes; open only what earns the click.</p>
+</li>
+</ol>
+</section>
+
+<section class="sample-digest" aria-labelledby="sample-heading">
+<p class="datestamp">Sample &middot; week of 2026-07-20</p>
+<h3 id="sample-heading">This is roughly what a week looks like.</h3>
+<section>
+<h4>Julia Evans</h4>
+<ul>
+<li class="pinned">How I write a good git commit message
+<small>A short, opinionated checklist &mdash; and why the subject line matters more than the body.</small>
+</li>
+<li>Debugging Kubernetes DNS at 2am
+<small>The five things I check first when nothing resolves inside a pod.</small>
+</li>
+</ul>
+</section>
+<section>
+<h4>Hacker News (top 3 of the week)</h4>
+<ul>
+<li>Show HN: I ran an SMTP server for a year</li>
+<li class="pinned">The compiler will (not) save you</li>
+<li>Postgres index-only scans in plain English</li>
+</ul>
+</section>
+</section>
+
 {% endblock %}
