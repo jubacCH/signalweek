@@ -12,7 +12,15 @@ from sqlalchemy.exc import IntegrityError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-CURATED_TABLES = {"sources", "raw_items", "clusters", "issues", "items", "source_candidates"}
+CURATED_TABLES = {
+    "sources",
+    "raw_items",
+    "clusters",
+    "issues",
+    "items",
+    "source_candidates",
+    "source_health_events",
+}
 PERSONAL_AGGREGATOR_TABLES = {"users", "signals", "digests", "api_tokens"}
 
 
@@ -75,6 +83,12 @@ def test_curated_tables_have_expected_columns(tmp_path: Path) -> None:
         "discovered",
         "discovered_first_seen_week",
         "discovered_cite_count",
+        "consecutive_fetch_failures",
+        "last_fetch_ok_at",
+        "last_fetch_error_at",
+        "last_item_at",
+        "deactivated_at",
+        "deactivation_reason",
     }
     assert columns["source_candidates"] == {
         "id",
@@ -86,6 +100,13 @@ def test_curated_tables_have_expected_columns(tmp_path: Path) -> None:
         "promoted",
         "promoted_at",
         "promoted_source_id",
+    }
+    assert columns["source_health_events"] == {
+        "id",
+        "source_id",
+        "at",
+        "action",
+        "reason",
     }
     assert columns["raw_items"] == {
         "id",
@@ -209,7 +230,7 @@ def test_downgrade_restores_personal_aggregator_schema(tmp_path: Path) -> None:
     assert (CURATED_TABLES - {"sources"}).isdisjoint(tables)
 
 
-def test_downgrade_one_removes_source_discovery_additions(tmp_path: Path) -> None:
+def test_downgrade_one_removes_source_health_additions(tmp_path: Path) -> None:
     db_path = tmp_path / "migrated.db"
     db_url = f"sqlite:///{db_path}"
     cfg = _alembic_config(db_url)
@@ -225,14 +246,20 @@ def test_downgrade_one_removes_source_discovery_additions(tmp_path: Path) -> Non
     finally:
         engine.dispose()
 
-    # After downgrading one step from head, we are back on the curated
-    # schema without the discovery additions.
-    assert "source_candidates" not in tables
-    assert "discovered" not in source_columns
-    assert "discovered_first_seen_week" not in source_columns
-    assert "discovered_cite_count" not in source_columns
-    # The other curated tables should still be present.
-    assert (CURATED_TABLES - {"source_candidates"}).issubset(tables)
+    # After downgrading one step from head, we are back on the source-discovery
+    # schema — the health-tracking additions are gone.
+    assert "source_health_events" not in tables
+    assert "consecutive_fetch_failures" not in source_columns
+    assert "last_fetch_ok_at" not in source_columns
+    assert "last_fetch_error_at" not in source_columns
+    assert "last_item_at" not in source_columns
+    assert "deactivated_at" not in source_columns
+    assert "deactivation_reason" not in source_columns
+    # Source discovery columns are still there.
+    assert "discovered" in source_columns
+    assert "source_candidates" in tables
+    # And the other curated tables.
+    assert (CURATED_TABLES - {"source_health_events"}).issubset(tables)
 
 
 def test_downgrade_to_base_removes_all_tables(tmp_path: Path) -> None:

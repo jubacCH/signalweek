@@ -74,6 +74,45 @@ sources_table = Table(
     Column("discovered", Boolean, nullable=False, default=False, server_default="0"),
     Column("discovered_first_seen_week", Date, nullable=True),
     Column("discovered_cite_count", Integer, nullable=True),
+    # Health counters maintained by the ingest layer and consumed by
+    # :mod:`signalweek.ingest.health` to prune dead/silent sources.
+    Column(
+        "consecutive_fetch_failures",
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    ),
+    Column("last_fetch_ok_at", DateTime(timezone=True), nullable=True),
+    Column("last_fetch_error_at", DateTime(timezone=True), nullable=True),
+    Column("last_item_at", DateTime(timezone=True), nullable=True),
+    Column("deactivated_at", DateTime(timezone=True), nullable=True),
+    Column("deactivation_reason", String(64), nullable=True),
+)
+
+# Append-only audit log of every activation/deactivation the health prune
+# step performs. ``action`` is either ``'activated'`` or ``'deactivated'``,
+# ``reason`` is a short machine-readable tag (``fetch_failures``, ``silent``,
+# ``recovered``). Mirrors the ``source_health_events`` table created by
+# migration 0005.
+source_health_events_table = Table(
+    "source_health_events",
+    sources_metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "source_id",
+        Integer,
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    ),
+    Column("at", DateTime(timezone=True), nullable=False, index=True),
+    Column("action", String(16), nullable=False),
+    Column("reason", String(64), nullable=False),
+    CheckConstraint(
+        "action IN ('activated', 'deactivated')",
+        name="ck_source_health_events_action",
+    ),
 )
 
 # Running tally of every domain the pipeline has seen cited as a primary or
