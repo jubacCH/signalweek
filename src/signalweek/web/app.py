@@ -9,9 +9,10 @@ Note: this module intentionally does not use ``from __future__ import
 annotations`` — FastAPI resolves route signatures with ``get_type_hints``.
 """
 
+from datetime import date
 from importlib.resources import files
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -20,7 +21,12 @@ from sqlalchemy.engine import Engine
 
 from signalweek.db.session import get_engine
 from signalweek.ingest.classify import CATEGORIES, CATEGORY_LABELS
+from signalweek.web.archive import (
+    load_published_issue_by_week,
+    load_published_issues,
+)
 from signalweek.web.landing import load_latest_published_issue
+from signalweek.web.renderers import render_issue
 
 PRODUCT_NAME = "Signalweek"
 PRODUCT_TAGLINE = (
@@ -77,5 +83,36 @@ def create_app(engine: Engine | None = None) -> FastAPI:
                 "category_labels": CATEGORY_LABELS,
             },
         )
+
+    @app.get("/issues", response_class=HTMLResponse)
+    def issues_index(request: Request) -> HTMLResponse:
+        issues = load_published_issues(_resolve_engine())
+        return templates.TemplateResponse(
+            request,
+            "issues_index.html.j2",
+            {
+                "title": "Archive",
+                "issues": issues,
+            },
+        )
+
+    @app.get("/issues/{week_of}", response_class=HTMLResponse)
+    def issue_permalink(week_of: str) -> HTMLResponse:
+        try:
+            parsed_week = date.fromisoformat(week_of)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="issue not found") from exc
+
+        detail = load_published_issue_by_week(_resolve_engine(), parsed_week)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="issue not found")
+
+        html = render_issue(
+            week_of=detail.week_of,
+            status="published",
+            published_at=detail.published_at,
+            items=detail.items,
+        )
+        return HTMLResponse(content=html)
 
     return app
