@@ -9,12 +9,13 @@ than accepting user-added sources. This module owns:
 * :func:`upsert_sources` / :func:`upsert_sources_from_yaml` — write the
   parsed specs into the ``sources`` table, updating rows in place when the
   URL already exists so re-running the loader is idempotent.
-* :data:`sources_table` / :data:`raw_items_table` — SQLAlchemy Core tables
-  that mirror the columns created by migration ``0003_curated_digest_schema``.
-  The ingest pipeline writes into ``raw_items`` and reads from ``sources``
-  through these Core definitions rather than through ORM models, so tests and
-  callers do not depend on the retired ``User``/``Source`` declarative models
-  still living in :mod:`signalweek.db.models`.
+* :data:`sources_table` / :data:`raw_items_table` / :data:`clusters_table` /
+  :data:`issues_table` / :data:`items_table` — SQLAlchemy Core tables that
+  mirror the columns created by migration ``0003_curated_digest_schema``. The
+  ingest and build pipelines read and write through these Core definitions
+  rather than through ORM models, so tests and callers do not depend on the
+  retired ``User``/``Source`` declarative models still living in
+  :mod:`signalweek.db.models`.
 """
 
 from __future__ import annotations
@@ -26,8 +27,11 @@ from typing import Any
 
 import yaml
 from sqlalchemy import (
+    JSON,
     Boolean,
+    CheckConstraint,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -106,6 +110,53 @@ clusters_table = Table(
     Column("primary_url", String(2048), nullable=False, index=True),
     Column("category", String(64), nullable=False, index=True),
     Column("canonical_headline", String(1024), nullable=False),
+)
+
+# One row per weekly issue of the digest. ``status`` moves ``draft`` → ``held``
+# (fewer than the minimum item count) or ``draft`` → ``published`` (a full
+# issue). ``week_of`` is the Monday of the ISO week the issue covers.
+# Mirrors the ``issues`` table created by migration 0003.
+issues_table = Table(
+    "issues",
+    sources_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("week_of", Date, nullable=False),
+    Column("status", String(16), nullable=False, server_default="draft"),
+    Column("published_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint("status IN ('draft', 'held', 'published')", name="ck_issues_status"),
+    UniqueConstraint("week_of", name="uq_issues_week_of"),
+)
+
+# One row per item placed into an issue: a categorised, ordered story with a
+# rule-based summary and a primary source URL. ``extra_source_urls`` is the
+# ordered list of other outlets whose raw_items fell into the same cluster.
+# Mirrors the ``items`` table created by migration 0003.
+items_table = Table(
+    "items",
+    sources_metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "issue_id",
+        Integer,
+        ForeignKey("issues.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    ),
+    Column(
+        "cluster_id",
+        Integer,
+        ForeignKey("clusters.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    ),
+    Column("category", String(64), nullable=False, index=True),
+    Column("position", Integer, nullable=False),
+    Column("headline", String(1024), nullable=False),
+    Column("summary", Text, nullable=False),
+    Column("primary_url", String(2048), nullable=False),
+    Column("extra_source_urls", JSON, nullable=False, server_default="[]"),
+    UniqueConstraint("issue_id", "position", name="uq_items_issue_position"),
+    UniqueConstraint("issue_id", "cluster_id", name="uq_items_issue_cluster"),
 )
 
 
