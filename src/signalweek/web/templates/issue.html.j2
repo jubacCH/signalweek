@@ -1,0 +1,37 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<article id="digest-permalink">
+<hgroup>
+<h1>Signalweek &mdash; week of {{ week_of.isoformat() }}</h1>
+<h2>The AI industry in five sections. Every item cites its primary source.</h2>
+</hgroup>
+{% if status == "published" and published_at %}
+<p><time datetime="{{ published_at.isoformat() }}">Published {{ published_at.strftime('%B %d, %Y') }}</time></p>
+{% elif status != "published" %}
+<p><small>Preview &mdash; this issue is {{ status }}.</small></p>
+{% endif %}
+{% for category in categories %}
+<section aria-labelledby="section-{{ category }}">
+<h3 id="section-{{ category }}">{{ category_labels[category] }}</h3>
+{% set items = items_by_category[category] %}
+{% if items %}
+<ul>
+{% for item in items %}
+<li>
+<a href="{{ item.primary_url }}" rel="noopener">{{ item.headline }}</a>
+<p>{{ item.summary }}</p>
+{% if item.extra_source_urls %}
+<p class="extra-sources"><small>Also covered by:
+{% for url in item.extra_source_urls %}<a href="{{ url }}" rel="noopener">{{ url }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+</small></p>
+{% endif %}
+</li>
+{% endfor %}
+</ul>
+{% else %}
+<p class="empty-section"><em>Nothing in this section this week.</em></p>
+{% endif %}
+</section>
+{% endfor %}
+</article>
+{% endblock %}
