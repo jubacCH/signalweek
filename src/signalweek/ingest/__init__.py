@@ -20,16 +20,30 @@ from signalweek.ingest.feeds import (
     ingest_source,
     parse_feed,
 )
+from signalweek.ingest.health import (
+    DEFAULT_MAX_CONSECUTIVE_FAILURES,
+    DEFAULT_SILENT_WEEKS,
+    HealthEvent,
+    ProbeResult,
+    PruneResult,
+    probe_inactive_sources,
+    prune_sources,
+)
 
 __all__ = [
     "CATEGORIES",
     "CATEGORY_LABELS",
+    "DEFAULT_MAX_CONSECUTIVE_FAILURES",
+    "DEFAULT_SILENT_WEEKS",
     "FALLBACK_CATEGORY",
     "ClassifyRunResult",
     "ClusterRunResult",
     "FetchError",
     "FetchedEntry",
+    "HealthEvent",
     "IngestRunResult",
+    "ProbeResult",
+    "PruneResult",
     "SourceIngestResult",
     "canonicalize_url",
     "classify_clusters",
@@ -39,4 +53,6 @@ __all__ = [
     "ingest_all_active",
     "ingest_source",
     "parse_feed",
+    "probe_inactive_sources",
+    "prune_sources",
 ]

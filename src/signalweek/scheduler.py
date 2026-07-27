@@ -34,6 +34,7 @@ from signalweek.digest.builder import BuildResult, IssueAlreadyExistsError, buil
 from signalweek.digest.verify import VerifyResult, verify_issue
 from signalweek.ingest.cluster import cluster_raw_items
 from signalweek.ingest.feeds import IngestRunResult, ingest_all_active
+from signalweek.ingest.health import prune_sources
 
 logger = logging.getLogger(__name__)
 
@@ -67,24 +68,45 @@ class WeeklyPipelineResult:
 
 
 def run_ingest(session_factory: SessionFactory) -> IngestRunResult:
-    """Fetch every active source, then rebuild clusters.
+    """Fetch every active source, rebuild clusters, then prune dead sources.
 
-    The two writes are committed in separate transactions so a clustering
+    The three writes are committed in separate transactions so a downstream
     failure does not roll back the raw_items that landed successfully.
+    Pruning runs last so it observes the fresh fetch/success counters the
+    ingest pass just wrote.
     """
     with _committed(session_factory) as session:
         ingest_result = ingest_all_active(session)
     with _committed(session_factory) as session:
         cluster_result = cluster_raw_items(session)
+    with _committed(session_factory) as session:
+        prune_result = prune_sources(session)
 
     logger.info(
-        "ingest_tick inserted=%d skipped=%d errors=%d clusters_created=%d clusters_matched=%d",
+        "ingest_tick inserted=%d skipped=%d errors=%d clusters_created=%d "
+        "clusters_matched=%d deactivated=%d reactivated=%d",
         ingest_result.total_inserted,
         ingest_result.total_skipped,
         len(ingest_result.errors),
         cluster_result.created,
         cluster_result.matched,
+        len(prune_result.deactivated),
+        len(prune_result.reactivated),
     )
+    for event in prune_result.deactivated:
+        logger.info(
+            "source_health_event source_id=%d url=%s action=deactivated reason=%s",
+            event.source_id,
+            event.url,
+            event.reason,
+        )
+    for event in prune_result.reactivated:
+        logger.info(
+            "source_health_event source_id=%d url=%s action=activated reason=%s",
+            event.source_id,
+            event.url,
+            event.reason,
+        )
     return ingest_result
 
 

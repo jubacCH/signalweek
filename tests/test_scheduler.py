@@ -272,7 +272,7 @@ class TestDstSafety:
 
 
 class TestRunIngest:
-    def test_calls_ingest_then_cluster_and_commits_separately(
+    def test_calls_ingest_then_cluster_then_prune_and_commits_separately(
         self, session_factory, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         calls: list[str] = []
@@ -294,12 +294,19 @@ class TestRunIngest:
 
             return ClusterRunResult()
 
+        def fake_prune(session, **kwargs):
+            calls.append("prune")
+            from signalweek.ingest.health import PruneResult
+
+            return PruneResult()
+
         monkeypatch.setattr("signalweek.scheduler.ingest_all_active", fake_ingest_all_active)
         monkeypatch.setattr("signalweek.scheduler.cluster_raw_items", fake_cluster)
+        monkeypatch.setattr("signalweek.scheduler.prune_sources", fake_prune)
 
         result = run_ingest(session_factory)
 
-        assert calls == ["ingest", "cluster"]
+        assert calls == ["ingest", "cluster", "prune"]
         assert result is ingest_stub
 
     def test_returns_ingest_result_with_zero_active_sources(self, session_factory) -> None:

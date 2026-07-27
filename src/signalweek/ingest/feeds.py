@@ -149,7 +149,15 @@ def ingest_source(
     Passing ``content`` skips the network fetch and is intended for tests or
     replay from cached bytes. Existing rows are looked up by
     ``(source_id, canonical_url)`` so re-ingesting a feed is idempotent.
+
+    A successful call updates the health counters on the source row via
+    :mod:`signalweek.ingest.health`, so the periodic prune step can spot
+    dead/silent sources without any manual bookkeeping.
     """
+    # Imported here to avoid a circular import: health imports FetchError
+    # from this module.
+    from signalweek.ingest.health import record_fetch_success, record_items_seen
+
     raw = content if content is not None else fetch_feed(url, client=client)
     entries = parse_feed(raw)
 
@@ -177,6 +185,10 @@ def ingest_source(
         )
         existing.add(entry.canonical_url)
         inserted += 1
+
+    record_fetch_success(connection, source_id=source_id, now=stamp)
+    if inserted > 0:
+        record_items_seen(connection, source_id=source_id, now=stamp)
 
     return SourceIngestResult(
         source_id=source_id,
@@ -208,6 +220,11 @@ def ingest_all_active(
     )
     rows = connection.execute(stmt).all()
 
+    # Imported here to avoid a circular import at module load time.
+    from signalweek.ingest.health import record_fetch_failure
+
+    stamp = now or datetime.now(UTC)
+
     results: list[SourceIngestResult] = []
     for row in rows:
         try:
@@ -217,10 +234,11 @@ def ingest_all_active(
                     source_id=row.id,
                     url=row.url,
                     client=client,
-                    now=now,
+                    now=stamp,
                 )
             )
         except FetchError as exc:
+            record_fetch_failure(connection, source_id=int(row.id), now=stamp)
             results.append(
                 SourceIngestResult(
                     source_id=row.id,
