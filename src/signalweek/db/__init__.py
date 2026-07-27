@@ -1,6 +1,11 @@
-"""Data layer: SQLAlchemy models, session factory, and repositories."""
+"""Data layer: engine and session factory for the curated-digest schema.
 
-from signalweek.db.base import Base
+The curated-digest pipeline defines its tables as SQLAlchemy Core
+:class:`Table` objects on :data:`signalweek.sources.sources_metadata`; no
+declarative ORM base lives here. Migrations under ``alembic/versions`` are
+the sole source of truth for the shipped schema.
+"""
+
 from signalweek.db.session import (
     create_db_engine,
     create_session_factory,
@@ -12,7 +17,6 @@ from signalweek.db.session import (
 )
 
 __all__ = [
-    "Base",
     "create_db_engine",
     "create_session_factory",
     "get_database_url",

@@ -12,10 +12,8 @@ than accepting user-added sources. This module owns:
 * :data:`sources_table` / :data:`raw_items_table` / :data:`clusters_table` /
   :data:`issues_table` / :data:`items_table` — SQLAlchemy Core tables that
   mirror the columns created by migration ``0003_curated_digest_schema``. The
-  ingest and build pipelines read and write through these Core definitions
-  rather than through ORM models, so tests and callers do not depend on the
-  retired ``User``/``Source`` declarative models still living in
-  :mod:`signalweek.db.models`.
+  ingest, build, and CLI layers all read and write through these Core
+  definitions; there is no declarative ORM base for the curated pipeline.
 """
 
 from __future__ import annotations

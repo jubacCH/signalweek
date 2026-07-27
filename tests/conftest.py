@@ -6,26 +6,21 @@ from collections.abc import Iterator
 
 import pytest
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
 
-from signalweek.db.base import Base
-from signalweek.db.session import create_db_engine, create_session_factory
+from signalweek.db.session import create_db_engine
+from signalweek.sources import sources_metadata
 
 
 @pytest.fixture()
-def sqlite_engine() -> Iterator[Engine]:
-    """A fresh in-memory SQLite engine with the schema created."""
+def curated_engine() -> Iterator[Engine]:
+    """A fresh in-memory SQLite engine with the curated-digest schema created.
+
+    Mirrors what ``alembic upgrade head`` produces: the five tables in
+    :data:`signalweek.sources.sources_metadata` and their indexes.
+    """
     engine = create_db_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
+    sources_metadata.create_all(engine)
     try:
         yield engine
     finally:
         engine.dispose()
-
-
-@pytest.fixture()
-def session(sqlite_engine: Engine) -> Iterator[Session]:
-    """A DB session bound to the throwaway SQLite engine."""
-    factory = create_session_factory(sqlite_engine)
-    with factory() as s:
-        yield s
