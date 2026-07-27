@@ -137,20 +137,28 @@ class TestSourcesAdd:
         _run(
             engine,
             [
-                "sources", "add",
-                "--url", "https://example.com/feed.xml",
-                "--kind", "rss",
-                "--category", "models",
+                "sources",
+                "add",
+                "--url",
+                "https://example.com/feed.xml",
+                "--kind",
+                "rss",
+                "--category",
+                "models",
             ],
         )
         # Re-add with a different category: should update, not error.
         code, out, _ = _run(
             engine,
             [
-                "sources", "add",
-                "--url", "https://example.com/feed.xml",
-                "--kind", "atom",
-                "--category", "research",
+                "sources",
+                "add",
+                "--url",
+                "https://example.com/feed.xml",
+                "--kind",
+                "atom",
+                "--category",
+                "research",
             ],
         )
         assert code == EXIT_OK
@@ -162,17 +170,33 @@ class TestSourcesAdd:
         assert row.category_hint == "research"
 
     def test_add_re_enables_a_disabled_source(self, engine: Engine) -> None:
-        _run(engine, [
-            "sources", "add",
-            "--url", "https://example.com/feed.xml",
-            "--kind", "rss", "--category", "models",
-        ])
+        _run(
+            engine,
+            [
+                "sources",
+                "add",
+                "--url",
+                "https://example.com/feed.xml",
+                "--kind",
+                "rss",
+                "--category",
+                "models",
+            ],
+        )
         _run(engine, ["sources", "disable", "--url", "https://example.com/feed.xml"])
-        code, out, _ = _run(engine, [
-            "sources", "add",
-            "--url", "https://example.com/feed.xml",
-            "--kind", "rss", "--category", "models",
-        ])
+        code, out, _ = _run(
+            engine,
+            [
+                "sources",
+                "add",
+                "--url",
+                "https://example.com/feed.xml",
+                "--kind",
+                "rss",
+                "--category",
+                "models",
+            ],
+        )
         assert code == EXIT_OK
         assert "updated source" in out
 
@@ -182,21 +206,35 @@ class TestSourcesAdd:
 
     def test_add_rejects_unknown_kind(self, engine: Engine) -> None:
         with pytest.raises(SystemExit):
-            _run(engine, [
-                "sources", "add",
-                "--url", "https://example.com/feed.xml",
-                "--kind", "podcast",
-                "--category", "models",
-            ])
+            _run(
+                engine,
+                [
+                    "sources",
+                    "add",
+                    "--url",
+                    "https://example.com/feed.xml",
+                    "--kind",
+                    "podcast",
+                    "--category",
+                    "models",
+                ],
+            )
 
     def test_add_rejects_unknown_category(self, engine: Engine) -> None:
         with pytest.raises(SystemExit):
-            _run(engine, [
-                "sources", "add",
-                "--url", "https://example.com/feed.xml",
-                "--kind", "rss",
-                "--category", "sports",
-            ])
+            _run(
+                engine,
+                [
+                    "sources",
+                    "add",
+                    "--url",
+                    "https://example.com/feed.xml",
+                    "--kind",
+                    "rss",
+                    "--category",
+                    "sports",
+                ],
+            )
 
 
 class TestSourcesList:
@@ -206,16 +244,32 @@ class TestSourcesList:
         assert "no sources registered" in out
 
     def test_list_prints_active_and_inactive_sources(self, engine: Engine) -> None:
-        _run(engine, [
-            "sources", "add",
-            "--url", "https://a.example/feed",
-            "--kind", "rss", "--category", "models",
-        ])
-        _run(engine, [
-            "sources", "add",
-            "--url", "https://b.example/feed",
-            "--kind", "atom", "--category", "research",
-        ])
+        _run(
+            engine,
+            [
+                "sources",
+                "add",
+                "--url",
+                "https://a.example/feed",
+                "--kind",
+                "rss",
+                "--category",
+                "models",
+            ],
+        )
+        _run(
+            engine,
+            [
+                "sources",
+                "add",
+                "--url",
+                "https://b.example/feed",
+                "--kind",
+                "atom",
+                "--category",
+                "research",
+            ],
+        )
         _run(engine, ["sources", "disable", "--url", "https://b.example/feed"])
 
         code, out, _ = _run(engine, ["sources", "list"])
@@ -230,11 +284,19 @@ class TestSourcesList:
 
 class TestSourcesDisable:
     def test_disable_flips_active_to_false(self, engine: Engine) -> None:
-        _run(engine, [
-            "sources", "add",
-            "--url", "https://example.com/feed",
-            "--kind", "rss", "--category", "models",
-        ])
+        _run(
+            engine,
+            [
+                "sources",
+                "add",
+                "--url",
+                "https://example.com/feed",
+                "--kind",
+                "rss",
+                "--category",
+                "models",
+            ],
+        )
         code, out, _ = _run(engine, ["sources", "disable", "--url", "https://example.com/feed"])
         assert code == EXIT_OK
         assert "disabled source https://example.com/feed" in out
@@ -452,9 +514,7 @@ class TestIssuePublish:
     def test_publish_stamps_now_from_injected_clock(self, engine: Engine) -> None:
         _insert_bare_issue(engine, status="held")
         pinned = datetime(2026, 8, 3, 15, 30, tzinfo=UTC)
-        code, out, _ = _run(
-            engine, ["issue", "publish", "--week", "2026-07-27"], now=pinned
-        )
+        code, out, _ = _run(engine, ["issue", "publish", "--week", "2026-07-27"], now=pinned)
         assert code == EXIT_OK
         assert "2026-08-03T15:30:00+00:00" in out
 

@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-CURATED_TABLES = {"sources", "raw_items", "clusters", "issues", "items"}
+CURATED_TABLES = {"sources", "raw_items", "clusters", "issues", "items", "source_candidates"}
 PERSONAL_AGGREGATOR_TABLES = {"users", "signals", "digests", "api_tokens"}
 
 
@@ -66,7 +66,27 @@ def test_curated_tables_have_expected_columns(tmp_path: Path) -> None:
     finally:
         engine.dispose()
 
-    assert columns["sources"] == {"id", "url", "kind", "category_hint", "active"}
+    assert columns["sources"] == {
+        "id",
+        "url",
+        "kind",
+        "category_hint",
+        "active",
+        "discovered",
+        "discovered_first_seen_week",
+        "discovered_cite_count",
+    }
+    assert columns["source_candidates"] == {
+        "id",
+        "domain",
+        "first_seen_week",
+        "last_seen_week",
+        "cite_count",
+        "distinct_weeks_count",
+        "promoted",
+        "promoted_at",
+        "promoted_source_id",
+    }
     assert columns["raw_items"] == {
         "id",
         "source_id",
@@ -165,13 +185,13 @@ def test_issues_status_check_constraint_accepts_all_valid_values(tmp_path: Path)
         engine.dispose()
 
 
-def test_downgrade_one_restores_personal_aggregator_schema(tmp_path: Path) -> None:
+def test_downgrade_restores_personal_aggregator_schema(tmp_path: Path) -> None:
     db_path = tmp_path / "migrated.db"
     db_url = f"sqlite:///{db_path}"
     cfg = _alembic_config(db_url)
 
     command.upgrade(cfg, "head")
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, "0002_api_tokens")
 
     engine = create_engine(db_url)
     try:
@@ -187,6 +207,32 @@ def test_downgrade_one_restores_personal_aggregator_schema(tmp_path: Path) -> No
     assert "user_id" in source_columns
     # The curated-only tables must be gone.
     assert (CURATED_TABLES - {"sources"}).isdisjoint(tables)
+
+
+def test_downgrade_one_removes_source_discovery_additions(tmp_path: Path) -> None:
+    db_path = tmp_path / "migrated.db"
+    db_url = f"sqlite:///{db_path}"
+    cfg = _alembic_config(db_url)
+
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "-1")
+
+    engine = create_engine(db_url)
+    try:
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+        source_columns = {c["name"] for c in inspector.get_columns("sources")}
+    finally:
+        engine.dispose()
+
+    # After downgrading one step from head, we are back on the curated
+    # schema without the discovery additions.
+    assert "source_candidates" not in tables
+    assert "discovered" not in source_columns
+    assert "discovered_first_seen_week" not in source_columns
+    assert "discovered_cite_count" not in source_columns
+    # The other curated tables should still be present.
+    assert (CURATED_TABLES - {"source_candidates"}).issubset(tables)
 
 
 def test_downgrade_to_base_removes_all_tables(tmp_path: Path) -> None:
