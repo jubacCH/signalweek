@@ -94,6 +94,20 @@ raw_items_table = Table(
     UniqueConstraint("source_id", "canonical_url", name="uq_raw_items_source_canonical"),
 )
 
+# Dedup groups of raw_items that all cover the same story. The clustering pass
+# in :mod:`signalweek.ingest.cluster` upserts rows here as it groups incoming
+# raw_items — ``primary_url`` and ``canonical_headline`` come from the earliest
+# (by ``first_seen_at``) raw_item in the group.
+# Mirrors the ``clusters`` table created by migration 0003.
+clusters_table = Table(
+    "clusters",
+    sources_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("primary_url", String(2048), nullable=False, index=True),
+    Column("category", String(64), nullable=False, index=True),
+    Column("canonical_headline", String(1024), nullable=False),
+)
+
 
 @dataclass(frozen=True)
 class SourceSpec:
