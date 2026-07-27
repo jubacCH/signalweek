@@ -10,12 +10,11 @@
 {% for entry in entries %}
 <li>
 <a href="/digest/{{ entry.iso_week }}">Week of {{ entry.week_start.isoformat() }}</a>
-&mdash;
 <a href="/digest/{{ entry.iso_week }}.md" download>Download .md</a>
 </li>
 {% endfor %}
 </ul>
-<nav id="digest-history-pagination">
+<nav id="digest-history-pagination" aria-label="Archive pages">
 <ul>
 <li>
 {% if has_prev %}
@@ -35,7 +34,17 @@
 </ul>
 </nav>
 {% else %}
-<p id="digest-history-empty"><em>No past digests yet. Once weekly digests are generated they will show up here.</em></p>
+<div id="digest-history-empty" class="empty" role="status">
+<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<rect x="8" y="10" width="32" height="30" rx="3"/>
+<path d="M14 18h20M14 24h20M14 30h14"/>
+</svg>
+<em class="empty-title">No past digests yet.</em>
+<p>Once weekly digests are generated they will show up here &mdash; and stay downloadable as Markdown.</p>
+<div class="cta">
+<a href="/sources" role="button">Add sources</a>
+</div>
+</div>
 {% endif %}
 </article>
 {% endblock %}

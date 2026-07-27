@@ -1,11 +1,27 @@
 {% extends "base.html.j2" %}
 {% block content %}
+<article>
 <hgroup>
 <h1>Welcome aboard.</h1>
 <h2>Your Signalweek account is ready.</h2>
 </hgroup>
 <p>
-We'll email you next week's digest as soon as it's ready. In the meantime,
-you can add sources to your account.
+The next digest lands Monday morning. In the meantime, add the feeds you want
+Signalweek to watch &mdash; the more sources you connect, the better the ranking gets.
 </p>
+<div class="next-steps">
+<a href="/sources">
+<strong>Add your sources &rarr;</strong>
+<small>Paste RSS or Atom feed URLs so Signalweek knows what to read.</small>
+</a>
+<a href="/digest">
+<strong>See this week's digest</strong>
+<small>Watch it fill in as new items land across your sources.</small>
+</a>
+<a href="/digest/history">
+<strong>Browse the archive</strong>
+<small>Every past week is kept and downloadable as Markdown.</small>
+</a>
+</div>
+</article>
 {% endblock %}
