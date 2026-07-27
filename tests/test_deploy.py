@@ -132,9 +132,9 @@ class TestDockerCompose:
     def test_publishes_http_port(self, compose_text: str) -> None:
         assert re.search(r'"\$\{SIGNALWEEK_HTTP_PORT:-8000\}:8000"', compose_text)
 
-    def test_uses_env_file_for_secrets(self, compose_text: str) -> None:
-        # env_file: .env keeps SESSION_SECRET etc. out of the compose file
-        # itself, which stays in git.
+    def test_uses_env_file_for_config(self, compose_text: str) -> None:
+        # env_file: .env keeps deploy-time configuration out of the compose
+        # file itself, which stays in git.
         assert re.search(r"env_file:\s*\n\s*-\s*\.env", compose_text)
 
     def test_persists_sqlite_via_named_volume(self, compose_text: str) -> None:
@@ -161,7 +161,6 @@ class TestDockerCompose:
 
 class TestEnvExample:
     REQUIRED_KEYS = {
-        "SESSION_SECRET",
         "DATABASE_URL",
         "SIGNALWEEK_HTTP_PORT",
     }
@@ -179,12 +178,10 @@ class TestEnvExample:
     def test_documents_every_env_var_the_app_reads(self, env_example_text: str) -> None:
         assert self.REQUIRED_KEYS.issubset(self._keys(env_example_text))
 
-    def test_does_not_ship_a_real_secret(self, env_example_text: str) -> None:
-        # The placeholder must clearly signal that operators need to replace it.
-        session_line = next(
-            line for line in env_example_text.splitlines() if line.startswith("SESSION_SECRET=")
-        )
-        assert "change-me" in session_line.lower(), session_line
+    def test_does_not_document_retired_session_secret(self, env_example_text: str) -> None:
+        # Session cookies were removed alongside the per-user surfaces; the
+        # env template must no longer prompt operators for a session secret.
+        assert "SESSION_SECRET" not in env_example_text
 
     def test_does_not_reference_anthropic_or_similar_api_key(self, env_example_text: str) -> None:
         # Guardrail: this repo should never persist an ANTHROPIC_API_KEY, nor
@@ -210,15 +207,17 @@ class TestReadmeQuickstart:
     def test_has_self_host_notes_section(self, readme_text: str) -> None:
         assert re.search(r"^##\s+Self-hosting notes", readme_text, flags=re.MULTILINE)
 
-    def test_mentions_backup_and_https_and_secret_rotation(self, readme_text: str) -> None:
+    def test_mentions_backup_and_https(self, readme_text: str) -> None:
         lowered = readme_text.lower()
         assert "backup" in lowered or "back it up" in lowered
         assert "https" in lowered
-        assert "session_secret" in lowered
 
-    def test_shows_manual_run_week_recipe(self, readme_text: str) -> None:
-        # Operators need to know how to backfill or trigger the weekly job.
-        assert "signalweek run-week" in readme_text
+    def test_frames_product_as_curated_no_accounts(self, readme_text: str) -> None:
+        # The pivot removed per-user sign-up — the quickstart must not tell
+        # operators to point users at a sign-up flow that no longer exists.
+        lowered = readme_text.lower()
+        assert "sign up" not in lowered
+        assert "signalweek run-week" not in readme_text
 
 
 # ---------------------------------------------------------------------------

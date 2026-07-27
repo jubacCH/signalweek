@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Signalweek — a weekly digest of what actually mattered. Your feeds and subscriptions, ranked into one calm weekly read.">
+<meta name="description" content="Signalweek — a curated weekly digest of the AI industry: models, lawsuits and policy, funding, research, and industry moves.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#14131a" media="(prefers-color-scheme: dark)">
@@ -11,7 +11,6 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='14' width='2.4' height='10' rx='1.2' fill='%233b37c9' opacity='0.4'/%3E%3Crect x='6.5' y='11' width='2.4' height='13' rx='1.2' fill='%233b37c9' opacity='0.4'/%3E%3Crect x='11' y='16' width='2.4' height='8' rx='1.2' fill='%233b37c9' opacity='0.4'/%3E%3Crect x='15.5' y='6' width='2.4' height='18' rx='1.2' fill='%23f2b64a'/%3E%3Crect x='20' y='13' width='2.4' height='11' rx='1.2' fill='%233b37c9' opacity='0.4'/%3E%3Crect x='24.5' y='9' width='2.4' height='15' rx='1.2' fill='%233b37c9' opacity='0.4'/%3E%3Crect x='29' y='15' width='2.4' height='9' rx='1.2' fill='%233b37c9' opacity='0.4'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="{{ url_for('static', path='pico.min.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', path='signalweek.css') }}">
-<script src="{{ url_for('static', path='htmx.min.js') }}" defer></script>
 </head>
 <body>
 <a href="#main" class="skip-link">Skip to content</a>
@@ -33,21 +32,6 @@ Signalweek
 </a>
 </li>
 </ul>
-<ul>
-{% set _path = request.url.path if request else '' %}
-{% if current_user %}
-<li><a href="/digest"{% if _path == '/digest' or _path.startswith('/digest/') %} aria-current="page"{% endif %}>Digest</a></li>
-<li><a href="/sources"{% if _path == '/sources' %} aria-current="page"{% endif %}>Sources</a></li>
-<li>
-<form method="post" action="/logout" style="display:inline;">
-<button type="submit" class="secondary outline">Log out</button>
-</form>
-</li>
-{% else %}
-<li><a href="/login"{% if _path == '/login' %} aria-current="page"{% endif %}>Log in</a></li>
-<li><a href="/signup" role="button">Sign up</a></li>
-{% endif %}
-</ul>
 </nav>
 </header>
 <main id="main" class="container">
@@ -55,8 +39,7 @@ Signalweek
 </main>
 <footer class="site-footer">
 <div>
-<span>Signalweek &mdash; the week in signal, not noise.</span>
-<span><a href="/digest/history">Archive</a> &middot; <a href="/docs">API</a></span>
+<span>Signalweek &mdash; the AI week in signal, not noise.</span>
 </div>
 </footer>
 </body>
