@@ -35,6 +35,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "signalweek.web" = ["templates/*.j2", "static/*.css", "static/*.js"]
+"signalweek" = ["data/*.yaml"]
 
 [tool.ruff]
 line-length = 100

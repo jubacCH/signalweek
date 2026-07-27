@@ -1,0 +1,117 @@
+# Signalweek curated source registry.
+#
+# The editorial pipeline pulls from this fixed list — no per-user feeds.
+# Each entry seeds a row in the ``sources`` table via
+# ``signalweek.sources.upsert_sources_from_yaml``.
+#
+# Fields:
+#   url:            Public feed URL (RSS/Atom or arXiv API).
+#   kind:           Fetcher family. One of: rss, atom, arxiv_rss.
+#   category_hint:  Which of the five digest sections this source most often
+#                   contributes to. One of: models, lawsuits_policy, funding,
+#                   research, industry_moves. It is a *hint* only — clustering
+#                   may still re-classify an individual story.
+#   name:           Human-readable label, used in fallback bylines and admin UI.
+
+sources:
+  # ---- Frontier AI labs (models) -----------------------------------------
+  - name: OpenAI
+    url: https://openai.com/blog/rss.xml
+    kind: rss
+    category_hint: models
+  - name: Anthropic
+    url: https://www.anthropic.com/news/rss.xml
+    kind: rss
+    category_hint: models
+  - name: Google DeepMind
+    url: https://deepmind.google/blog/rss.xml
+    kind: rss
+    category_hint: models
+  - name: Meta AI
+    url: https://ai.meta.com/blog/rss/
+    kind: rss
+    category_hint: models
+  - name: Mistral AI
+    url: https://mistral.ai/news/rss.xml
+    kind: rss
+    category_hint: models
+  - name: xAI
+    url: https://x.ai/blog/rss.xml
+    kind: rss
+    category_hint: models
+  - name: Hugging Face
+    url: https://huggingface.co/blog/feed.xml
+    kind: atom
+    category_hint: models
+
+  # ---- Research feeds ----------------------------------------------------
+  - name: arXiv cs.AI
+    url: https://arxiv.org/rss/cs.AI
+    kind: arxiv_rss
+    category_hint: research
+  - name: arXiv cs.LG
+    url: https://arxiv.org/rss/cs.LG
+    kind: arxiv_rss
+    category_hint: research
+  - name: arXiv cs.CL
+    url: https://arxiv.org/rss/cs.CL
+    kind: arxiv_rss
+    category_hint: research
+  - name: Google Research
+    url: https://research.google/blog/rss/
+    kind: rss
+    category_hint: research
+  - name: Stanford HAI
+    url: https://hai.stanford.edu/news/rss.xml
+    kind: rss
+    category_hint: research
+
+  # ---- Policy / regulators (lawsuits_policy) -----------------------------
+  - name: FTC press releases
+    url: https://www.ftc.gov/news-events/news/press-releases/rss
+    kind: rss
+    category_hint: lawsuits_policy
+  - name: European Commission — digital strategy
+    url: https://digital-strategy.ec.europa.eu/en/news/rss.xml
+    kind: rss
+    category_hint: lawsuits_policy
+  - name: White House OSTP
+    url: https://www.whitehouse.gov/ostp/news-updates/feed/
+    kind: rss
+    category_hint: lawsuits_policy
+  - name: NIST news
+    url: https://www.nist.gov/news-events/news/rss.xml
+    kind: rss
+    category_hint: lawsuits_policy
+
+  # ---- Funding / industry news ------------------------------------------
+  - name: TechCrunch — AI
+    url: https://techcrunch.com/category/artificial-intelligence/feed/
+    kind: rss
+    category_hint: funding
+  - name: Crunchbase News
+    url: https://news.crunchbase.com/feed/
+    kind: rss
+    category_hint: funding
+  - name: VentureBeat — AI
+    url: https://venturebeat.com/category/ai/feed/
+    kind: rss
+    category_hint: funding
+
+  # ---- Industry moves (broader tech press with AI coverage) -------------
+  - name: The Verge — AI
+    url: https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
+    kind: rss
+    category_hint: industry_moves
+  - name: MIT Technology Review — AI
+    url: https://www.technologyreview.com/topic/artificial-intelligence/feed
+    kind: rss
+    category_hint: industry_moves
+  - name: Wired — AI
+    url: https://www.wired.com/feed/tag/ai/latest/rss
+    kind: rss
+    category_hint: industry_moves
+  - name: Ars Technica — AI
+    url: https://arstechnica.com/tag/artificial-intelligence/feed/
+    kind: rss
+    category_hint: industry_moves

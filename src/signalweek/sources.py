@@ -44,7 +44,13 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SOURCES_YAML = REPO_ROOT / "sources.yaml"
+_PACKAGED_SOURCES_YAML = Path(__file__).resolve().parent / "data" / "sources.yaml"
+_REPO_SOURCES_YAML = REPO_ROOT / "sources.yaml"
+# Prefer the copy shipped inside the package (present in the built image);
+# fall back to the repo-root file during local development.
+DEFAULT_SOURCES_YAML = (
+    _PACKAGED_SOURCES_YAML if _PACKAGED_SOURCES_YAML.exists() else _REPO_SOURCES_YAML
+)
 
 CATEGORY_HINTS: frozenset[str] = frozenset(
     {
@@ -383,6 +389,24 @@ def upsert_sources(
             unchanged += 1
 
     return UpsertResult(inserted=inserted, updated=updated, unchanged=unchanged)
+
+
+def seed_sources_if_empty(
+    bind: Session | Connection, path: str | Path | None = None
+) -> int:
+    """Seed the registry from the packaged ``sources.yaml`` the first time the
+    app boots against an empty ``sources`` table. Idempotent: a no-op when any
+    source already exists. Returns the number of sources seeded.
+
+    This exists so production boots with a working source list instead of an
+    empty pipeline — the unit loaders alone never run unless something calls
+    them, which is exactly the wiring gap this closes."""
+    conn = _as_connection(bind)
+    already = conn.execute(select(sources_table.c.id).limit(1)).first()
+    if already is not None:
+        return 0
+    result = upsert_sources_from_yaml(bind, path)
+    return getattr(result, "total", 0) or 0
 
 
 def upsert_sources_from_yaml(

@@ -9,6 +9,8 @@ Note: this module intentionally does not use ``from __future__ import
 annotations`` — FastAPI resolves route signatures with ``get_type_hints``.
 """
 
+import contextlib
+import logging
 from datetime import date
 from importlib.resources import files
 
@@ -28,6 +30,11 @@ from signalweek.web.archive import (
 )
 from signalweek.web.landing import load_latest_published_issue
 from signalweek.web.renderers import render_issue
+from signalweek.db.session import create_session_factory
+from signalweek.scheduler import create_scheduler
+from signalweek.sources import seed_sources_if_empty
+
+_logger = logging.getLogger(__name__)
 
 PRODUCT_NAME = "Signalweek"
 PRODUCT_TAGLINE = (
@@ -36,7 +43,13 @@ PRODUCT_TAGLINE = (
 )
 
 
-def create_app(engine: Engine | None = None, admin_token: str | None = None) -> FastAPI:
+def create_app(
+    engine: Engine | None = None,
+    admin_token: str | None = None,
+    *,
+    start_background: bool | None = None,
+    scheduler=None,
+) -> FastAPI:
     """Build a configured FastAPI application.
 
     ``engine`` lets tests inject an isolated database; production callers
@@ -47,7 +60,33 @@ def create_app(engine: Engine | None = None, admin_token: str | None = None) -> 
     being exploitable.
     """
 
-    app = FastAPI(title="Signalweek", docs_url="/docs", redoc_url=None)
+    _start_background = (engine is None) if start_background is None else start_background
+
+    @contextlib.asynccontextmanager
+    async def _lifespan(app: FastAPI):
+        sched = None
+        if _start_background:
+            eng = _resolve_engine()
+            try:
+                with eng.begin() as conn:
+                    seeded = seed_sources_if_empty(conn)
+                if seeded:
+                    _logger.info("seeded %d sources on startup", seeded)
+            except Exception:
+                _logger.exception("startup source seeding failed")
+            try:
+                sched = create_scheduler(create_session_factory(eng), scheduler=scheduler)
+                sched.start()
+                app.state.scheduler = sched
+                _logger.info("scheduler started: jobs=%s", [j.id for j in sched.get_jobs()])
+            except Exception:
+                _logger.exception("scheduler start failed")
+        yield
+        if sched is not None:
+            with contextlib.suppress(Exception):
+                sched.shutdown(wait=False)
+
+    app = FastAPI(title="Signalweek", docs_url="/docs", redoc_url=None, lifespan=_lifespan)
 
     package_root = files("signalweek.web")
     templates_dir = str(package_root / "templates")
