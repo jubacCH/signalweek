@@ -3,8 +3,8 @@
 <section class="hero">
 <span class="eyebrow">Weekly &middot; curated &middot; calm</span>
 <hgroup>
-<h1>The AI industry, one calm read a week.</h1>
-<h2>Signalweek is a curated weekly digest of what actually moved in AI &mdash; sorted into a fixed five-category taxonomy, every item citing a primary source.</h2>
+<h1>{{ product_name }}</h1>
+<h2>{{ product_tagline }}</h2>
 </hgroup>
 <p>
 No infinite scroll, no personalisation, no accounts. Every Monday a single
@@ -18,7 +18,47 @@ the industry moves that shaped the week.
 <span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 3.5 6 11 2.5 7.5l1-1L6 9l6.5-6.5z"/></svg> Research</span>
 <span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 3.5 6 11 2.5 7.5l1-1L6 9l6.5-6.5z"/></svg> Industry moves</span>
 </div>
+<p class="hero cta">
+{% if latest_issue %}
+<a href="#latest-issue" role="button">Read this week&rsquo;s issue &rarr;</a>
+{% else %}
+<a href="#how-heading" role="button">See how it works &rarr;</a>
+{% endif %}
+</p>
 </section>
+
+{% if latest_issue %}
+<section id="latest-issue" class="sample-digest" aria-labelledby="latest-issue-heading">
+<p class="datestamp">Week of {{ latest_issue.week_of.isoformat() }}</p>
+<h3 id="latest-issue-heading">
+<a href="#latest-issue">This week&rsquo;s issue &mdash; {{ latest_issue.total_items }} stories</a>
+</h3>
+{% if latest_issue.published_at %}
+<p><small><time datetime="{{ latest_issue.published_at.isoformat() }}">Published {{ latest_issue.published_at.strftime('%B %d, %Y') }}</time></small></p>
+{% endif %}
+{% for category in categories %}
+{% set items = latest_issue.items_by_category[category] %}
+{% if items %}
+<section aria-labelledby="latest-section-{{ category }}">
+<h4 id="latest-section-{{ category }}">{{ category_labels[category] }}</h4>
+<ul>
+{% for item in items %}
+<li>
+<a href="{{ item.primary_url }}" rel="noopener">{{ item.headline }}</a>
+</li>
+{% endfor %}
+</ul>
+</section>
+{% endif %}
+{% endfor %}
+</section>
+{% else %}
+<section class="sample-digest" aria-labelledby="no-issue-heading">
+<p class="datestamp">Coming soon</p>
+<h3 id="no-issue-heading">The first issue is on its way.</h3>
+<p>Signalweek publishes every Monday. Check back at the start of the week for the first curated digest.</p>
+</section>
+{% endif %}
 
 <section class="how-it-works" aria-labelledby="how-heading">
 <h2 id="how-heading" class="section-heading">How each issue is built</h2>
