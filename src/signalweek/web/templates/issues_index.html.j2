@@ -1,28 +1,41 @@
 {% extends "base.html.j2" %}
 {% block content %}
-<article id="issues-archive">
+<article id="issues-archive" class="archive">
+<header class="archive__head">
+<p class="archive__eyebrow">
+<span class="dot" aria-hidden="true"></span>
+Archive
+</p>
 <hgroup>
 <h1>Signalweek archive</h1>
 <h2>Every published weekly issue, most recent first.</h2>
 </hgroup>
+</header>
+
 {% if issues %}
-<ul class="issues-index">
+<ol class="issues-index" reversed>
 {% for issue in issues %}
-<li>
-<a href="/issues/{{ issue.week_of.isoformat() }}">Week of {{ issue.week_of.isoformat() }}</a>
+<li class="issues-index__item">
+<a class="issues-index__link" href="/issues/{{ issue.week_of.isoformat() }}">
+<span class="issues-index__title">Week of {{ issue.week_of.strftime('%B %d, %Y') }}</span>
+<span class="issues-index__meta">
 {% if issue.published_at %}
-<small>
 <time datetime="{{ issue.published_at.isoformat() }}">Published {{ issue.published_at.strftime('%B %d, %Y') }}</time>
-&middot; {{ issue.total_items }} stories
-</small>
-{% else %}
-<small>{{ issue.total_items }} stories</small>
+<span class="issues-index__sep" aria-hidden="true">&middot;</span>
 {% endif %}
+<span class="issues-index__count">{{ issue.total_items }} stor{{ 'y' if issue.total_items == 1 else 'ies' }}</span>
+</span>
+</a>
 </li>
 {% endfor %}
-</ul>
+</ol>
 {% else %}
-<p>No issues have been published yet. Check back after the first Monday.</p>
+<div class="empty archive__empty">
+<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="8" width="24" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="4" y1="14" x2="28" y2="14" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="4" width="2" height="6" rx="1" fill="currentColor"/><rect x="20" y="4" width="2" height="6" rx="1" fill="currentColor"/></svg>
+<p class="empty-title">No issues have been published yet.</p>
+<p>Signalweek publishes on Monday. Check back after the first Monday.</p>
+<p class="cta"><a href="/" role="button" class="secondary">Back to home</a></p>
+</div>
 {% endif %}
 </article>
 {% endblock %}

@@ -75,4 +75,5 @@ def render_issue(
         categories=CATEGORIES,
         category_labels=CATEGORY_LABELS,
         items_by_category=grouped,
+        nav_current="archive",
     )

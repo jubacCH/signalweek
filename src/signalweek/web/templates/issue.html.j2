@@ -1,37 +1,71 @@
 {% extends "base.html.j2" %}
 {% block content %}
-<article id="digest-permalink">
+<article id="digest-permalink" class="issue">
+<header class="issue__head">
+<p class="issue__eyebrow">
+<span class="dot" aria-hidden="true"></span>
+Issue &middot; Week of {{ week_of.strftime('%B %d, %Y') }}
+</p>
 <hgroup>
-<h1>Signalweek &mdash; week of {{ week_of.isoformat() }}</h1>
+<h1>The week in AI</h1>
 <h2>The AI industry in five sections. Every item cites its primary source.</h2>
 </hgroup>
 {% if status == "published" and published_at %}
-<p><time datetime="{{ published_at.isoformat() }}">Published {{ published_at.strftime('%B %d, %Y') }}</time></p>
+<p class="issue__meta"><time datetime="{{ published_at.isoformat() }}">Published {{ published_at.strftime('%B %d, %Y') }}</time></p>
 {% elif status != "published" %}
-<p><small>Preview &mdash; this issue is {{ status }}.</small></p>
+<p class="issue__meta"><small>Preview &mdash; this issue is {{ status }}.</small></p>
 {% endif %}
+</header>
+
+{% set ns = namespace(any=false) %}
+{% for category in categories %}{% if items_by_category[category] %}{% set ns.any = true %}{% endif %}{% endfor %}
+
+{% if ns.any %}
+<nav class="issue__toc" aria-label="Sections in this issue">
+<ol>
 {% for category in categories %}
-<section aria-labelledby="section-{{ category }}">
-<h3 id="section-{{ category }}">{{ category_labels[category] }}</h3>
+{% set items = items_by_category[category] %}
+<li{% if not items %} class="is-empty"{% endif %}>
+{% if items %}<a href="#section-{{ category }}" data-category="{{ category }}">
+<span>{{ category_labels[category] }}</span>
+<span class="issue__toc-count">{{ items|length }}</span>
+</a>
+{% else %}<span data-category="{{ category }}">
+<span>{{ category_labels[category] }}</span>
+<span class="issue__toc-count">0</span>
+</span>{% endif %}
+</li>
+{% endfor %}
+</ol>
+</nav>
+{% endif %}
+
+<div class="issue__sections">
+{% for category in categories %}
+<section class="issue__section" data-category="{{ category }}" aria-labelledby="section-{{ category }}">
+<h3 id="section-{{ category }}">
+<span class="section-label">{{ category_labels[category] }}</span>
+</h3>
 {% set items = items_by_category[category] %}
 {% if items %}
-<ul>
+<ol class="issue__items">
 {% for item in items %}
 <li>
-<a href="{{ item.primary_url }}" rel="noopener">{{ item.headline }}</a>
-<p>{{ item.summary }}</p>
+<a class="issue__item-title" href="{{ item.primary_url }}" rel="noopener">{{ item.headline }}</a>
+<p class="issue__item-summary">{{ item.summary }}</p>
 {% if item.extra_source_urls %}
 <p class="extra-sources"><small>Also covered by:
-{% for url in item.extra_source_urls %}<a href="{{ url }}" rel="noopener">{{ url }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+{% for url in item.extra_source_urls %}<a href="{{ url }}" rel="noopener" class="source-chip">{{ url|replace('https://', '')|replace('http://', '')|replace('www.', '')|truncate(38, True, '…') }}</a>{% if not loop.last %} {% endif %}{% endfor %}
 </small></p>
 {% endif %}
 </li>
 {% endfor %}
-</ul>
+</ol>
 {% else %}
 <p class="empty-section"><em>Nothing in this section this week.</em></p>
 {% endif %}
 </section>
 {% endfor %}
+</div>
 </article>
 {% endblock %}
