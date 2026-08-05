@@ -15,9 +15,7 @@
 <body>
 <a href="#main" class="skip-link">Skip to content</a>
 <header class="site-header">
-<nav>
-<ul>
-<li>
+<nav aria-label="Primary">
 <a href="/" class="wordmark" aria-label="Signalweek — home">
 <svg class="sw-logo" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
 <rect class="bar" x="2"    y="14" width="2.4" height="10" rx="1.2"/>
@@ -28,9 +26,11 @@
 <rect class="bar" x="24.5" y="9"  width="2.4" height="15" rx="1.2"/>
 <rect class="bar" x="29"   y="15" width="2.4" height="9"  rx="1.2"/>
 </svg>
-Signalweek
+<span>Signalweek</span>
 </a>
-</li>
+<ul class="site-nav">
+<li><a href="/"{% if nav_current == 'home' %} aria-current="page"{% endif %}>This week</a></li>
+<li><a href="/issues"{% if nav_current == 'archive' %} aria-current="page"{% endif %}>Archive</a></li>
 </ul>
 </nav>
 </header>
@@ -38,8 +38,26 @@ Signalweek
 {% block content %}{% endblock %}
 </main>
 <footer class="site-footer">
-<div>
-<span>Signalweek &mdash; the AI week in signal, not noise.</span>
+<div class="site-footer__inner">
+<div class="site-footer__brand">
+<span class="site-footer__mark" aria-hidden="true">
+<svg viewBox="0 0 32 32">
+<rect class="bar" x="2"    y="14" width="2.4" height="10" rx="1.2"/>
+<rect class="bar" x="6.5"  y="11" width="2.4" height="13" rx="1.2"/>
+<rect class="bar" x="11"   y="16" width="2.4" height="8"  rx="1.2"/>
+<rect class="lit" x="15.5" y="6"  width="2.4" height="18" rx="1.2"/>
+<rect class="bar" x="20"   y="13" width="2.4" height="11" rx="1.2"/>
+<rect class="bar" x="24.5" y="9"  width="2.4" height="15" rx="1.2"/>
+<rect class="bar" x="29"   y="15" width="2.4" height="9"  rx="1.2"/>
+</svg>
+</span>
+<span class="site-footer__tag">Signalweek &mdash; the AI week in signal, not noise.</span>
+</div>
+<nav class="site-footer__nav" aria-label="Footer">
+<a href="/">This week</a>
+<a href="/issues">Archive</a>
+<a href="#main">Back to top</a>
+</nav>
 </div>
 </footer>
 </body>

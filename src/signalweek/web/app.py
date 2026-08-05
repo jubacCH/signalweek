@@ -130,6 +130,7 @@ def create_app(
                 "latest_issue": latest,
                 "categories": CATEGORIES,
                 "category_labels": CATEGORY_LABELS,
+                "nav_current": "home",
             },
         )
 
@@ -142,6 +143,7 @@ def create_app(
             {
                 "title": "Archive",
                 "issues": issues,
+                "nav_current": "archive",
             },
         )
 

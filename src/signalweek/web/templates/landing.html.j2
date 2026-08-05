@@ -6,41 +6,71 @@
 <h1>{{ product_name }}</h1>
 <h2>{{ product_tagline }}</h2>
 </hgroup>
-<p>
+<p class="hero__lede">
 No infinite scroll, no personalisation, no accounts. Every Monday a single
 issue covers what happened across models, policy, funding, research, and
 the industry moves that shaped the week.
 </p>
-<div class="trust-bar" aria-label="What each issue covers">
-<span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 3.5 6 11 2.5 7.5l1-1L6 9l6.5-6.5z"/></svg> Models</span>
-<span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 3.5 6 11 2.5 7.5l1-1L6 9l6.5-6.5z"/></svg> Lawsuits &amp; policy</span>
-<span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 3.5 6 11 2.5 7.5l1-1L6 9l6.5-6.5z"/></svg> Funding</span>
-<span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 3.5 6 11 2.5 7.5l1-1L6 9l6.5-6.5z"/></svg> Research</span>
-<span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 3.5 6 11 2.5 7.5l1-1L6 9l6.5-6.5z"/></svg> Industry moves</span>
-</div>
-<p class="hero cta">
+
+<ul class="cat-strip" aria-label="What each issue covers">
+<li>
+<svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 2 3 6l7 4 7-4-7-4Zm0 6.6L4.2 5.5 10 3l5.8 2.5L10 8.6ZM3 10l7 4 7-4-1.4-.8L10 12.4l-5.6-3.2L3 10Zm0 4 7 4 7-4-1.4-.8L10 16.4l-5.6-3.2L3 14Z" fill="currentColor"/></svg>
+<span>Models</span>
+</li>
+<li>
+<svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M4 3h12v2H4V3Zm5 4h2v9H9V7Zm-6 9h14v2H3v-2Zm3-7 3 3-3 3-3-3 3-3Zm8 0 3 3-3 3-3-3 3-3Z" fill="currentColor"/></svg>
+<span>Lawsuits &amp; policy</span>
+</li>
+<li>
+<svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm0 14a6 6 0 1 1 0-12 6 6 0 0 1 0 12Zm.9-9.5V5.4h-1.8v1.1c-1.2.2-2 1-2 2.1 0 1.3 1 1.9 2.3 2.2l.7.2c.7.2 1 .4 1 .8 0 .5-.5.8-1.2.8-.9 0-1.4-.4-1.5-1.1H6.5c.1 1.4 1 2.2 2.6 2.4v1h1.8v-1c1.3-.2 2.1-1 2.1-2.2 0-1.2-.8-1.9-2.2-2.2l-.7-.2c-.7-.2-1.1-.4-1.1-.8 0-.4.4-.7 1.1-.7.8 0 1.2.4 1.3 1H13c-.1-1.3-.9-2.1-2.1-2.3Z" fill="currentColor"/></svg>
+<span>Funding</span>
+</li>
+<li>
+<svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M8 2h4v2h-1v4.3l3.7 6.2A2 2 0 0 1 13 17.5H7a2 2 0 0 1-1.7-3l3.7-6.2V4H8V2Zm3 7 1.8 3H7.2L9 9V4h2v5Z" fill="currentColor"/></svg>
+<span>Research</span>
+</li>
+<li>
+<svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M3 17V7l5-3 5 3v10h4V9l-3-2V5l4 2.5V19H3v-2Zm2 0h6V8L8 6.2 5 8v9Zm2-6h2v2H7v-2Zm0-3h2v2H7V8Z" fill="currentColor"/></svg>
+<span>Industry moves</span>
+</li>
+</ul>
+
+<p class="hero__cta">
 {% if latest_issue %}
 <a href="#latest-issue" role="button">Read this week&rsquo;s issue &rarr;</a>
+<a href="/issues" class="hero__cta-link">Browse the archive</a>
 {% else %}
 <a href="#how-heading" role="button">See how it works &rarr;</a>
+<a href="/issues" class="hero__cta-link">Browse the archive</a>
 {% endif %}
 </p>
 </section>
 
 {% if latest_issue %}
-<section id="latest-issue" class="sample-digest" aria-labelledby="latest-issue-heading">
-<p class="datestamp">Week of {{ latest_issue.week_of.isoformat() }}</p>
+<section id="latest-issue" class="issue-card" aria-labelledby="latest-issue-heading">
+<div class="issue-card__head">
+<p class="datestamp">
+<span class="dot" aria-hidden="true"></span>
+Week of {{ latest_issue.week_of.strftime('%B %d, %Y') }}
+</p>
+<span class="issue-card__badge">{{ latest_issue.total_items }} stories</span>
+</div>
 <h3 id="latest-issue-heading">
-<a href="#latest-issue">This week&rsquo;s issue &mdash; {{ latest_issue.total_items }} stories</a>
+<a href="/issues/{{ latest_issue.week_of.isoformat() }}">This week&rsquo;s issue</a>
 </h3>
 {% if latest_issue.published_at %}
-<p><small><time datetime="{{ latest_issue.published_at.isoformat() }}">Published {{ latest_issue.published_at.strftime('%B %d, %Y') }}</time></small></p>
+<p class="issue-card__meta"><time datetime="{{ latest_issue.published_at.isoformat() }}">Published {{ latest_issue.published_at.strftime('%B %d, %Y') }}</time></p>
 {% endif %}
+
+<div class="issue-card__sections">
 {% for category in categories %}
 {% set items = latest_issue.items_by_category[category] %}
 {% if items %}
-<section aria-labelledby="latest-section-{{ category }}">
-<h4 id="latest-section-{{ category }}">{{ category_labels[category] }}</h4>
+<section class="issue-card__section" data-category="{{ category }}" aria-labelledby="latest-section-{{ category }}">
+<h4 id="latest-section-{{ category }}">
+<span class="section-label">{{ category_labels[category] }}</span>
+<span class="section-count">{{ items|length }}</span>
+</h4>
 <ul>
 {% for item in items %}
 <li>
@@ -51,10 +81,15 @@ the industry moves that shaped the week.
 </section>
 {% endif %}
 {% endfor %}
+</div>
+
+<p class="issue-card__foot">
+<a href="/issues/{{ latest_issue.week_of.isoformat() }}" role="button" class="secondary">Open the full issue &rarr;</a>
+</p>
 </section>
 {% else %}
-<section class="sample-digest" aria-labelledby="no-issue-heading">
-<p class="datestamp">Coming soon</p>
+<section class="issue-card issue-card--empty" aria-labelledby="no-issue-heading">
+<p class="datestamp"><span class="dot" aria-hidden="true"></span> Coming soon</p>
 <h3 id="no-issue-heading">The first issue is on its way.</h3>
 <p>Signalweek publishes every Monday. Check back at the start of the week for the first curated digest.</p>
 </section>
