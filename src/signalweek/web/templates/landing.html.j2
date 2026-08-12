@@ -35,7 +35,7 @@ the industry moves that shaped the week.
 </li>
 </ul>
 
-<p class="hero__cta">
+<div class="hero__cta">
 {% if latest_issue %}
 <a href="#latest-issue" role="button">Read this week&rsquo;s issue &rarr;</a>
 <a href="/issues" class="hero__cta-link">Browse the archive</a>
@@ -43,7 +43,7 @@ the industry moves that shaped the week.
 <a href="#how-heading" role="button">See how it works &rarr;</a>
 <a href="/issues" class="hero__cta-link">Browse the archive</a>
 {% endif %}
-</p>
+</div>
 </section>
 
 {% if latest_issue %}
@@ -89,9 +89,15 @@ Week of {{ latest_issue.week_of.strftime('%B %d, %Y') }}
 </section>
 {% else %}
 <section class="issue-card issue-card--empty" aria-labelledby="no-issue-heading">
+<div class="issue-card__head">
 <p class="datestamp"><span class="dot" aria-hidden="true"></span> Coming soon</p>
+<span class="issue-card__badge">Issue 01</span>
+</div>
 <h3 id="no-issue-heading">The first issue is on its way.</h3>
-<p>Signalweek publishes every Monday. Check back at the start of the week for the first curated digest.</p>
+<p>Signalweek publishes every Monday. Check back at the start of the week for the first curated digest &mdash; models, policy, funding, research, and industry moves, one calm page.</p>
+<p class="issue-card__foot">
+<a href="#how-heading" role="button" class="secondary">See how each issue is built &rarr;</a>
+</p>
 </section>
 {% endif %}
 
