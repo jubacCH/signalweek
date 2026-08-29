@@ -4,7 +4,9 @@
 <header class="issue__head">
 <p class="issue__eyebrow">
 <span class="dot" aria-hidden="true"></span>
-Issue &middot; Week of {{ week_of.strftime('%B %d, %Y') }}
+<span class="issue__issue-no">No.&nbsp;{{ '%02d' % week_of.isocalendar()[1] }}&thinsp;/&thinsp;{{ week_of.year }}</span>
+<span class="issue__eyebrow-sep" aria-hidden="true">&middot;</span>
+<span>Week of {{ week_of.strftime('%B %d, %Y') }}</span>
 </p>
 <hgroup>
 <h1>The week in AI</h1>
