@@ -385,8 +385,16 @@ a { text-underline-offset: .18em; text-decoration-thickness: .08em; }
 .issue-card .datestamp {
   color: var(--sw-muted); font-family: var(--sw-mono); font-size: .78rem;
   text-transform: uppercase; letter-spacing: .08em; margin: 0;
-  display: inline-flex; align-items: center;
+  display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap;
 }
+.datestamp__issue {
+  color: var(--sw-highlight-ink); background: var(--sw-highlight-soft);
+  border: 1px solid color-mix(in srgb, var(--sw-highlight) 25%, transparent);
+  padding: .05rem .5rem; border-radius: 999px;
+  font-variant-numeric: tabular-nums; letter-spacing: .06em;
+}
+.datestamp__sep { color: var(--sw-line); }
+.datestamp__date { color: var(--sw-muted); }
 .issue-card__badge {
   font-family: var(--sw-mono); font-size: .72rem; letter-spacing: .06em;
   text-transform: uppercase; color: var(--sw-faint);
@@ -486,8 +494,15 @@ article {
 .issue__eyebrow {
   color: var(--sw-muted); font-family: var(--sw-mono); font-size: .78rem;
   text-transform: uppercase; letter-spacing: .08em; margin: 0 0 .75rem;
-  display: inline-flex; align-items: center;
+  display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap;
 }
+.issue__issue-no {
+  color: var(--sw-highlight-ink); background: var(--sw-highlight-soft);
+  border: 1px solid color-mix(in srgb, var(--sw-highlight) 25%, transparent);
+  padding: .05rem .5rem; border-radius: 999px;
+  font-variant-numeric: tabular-nums; letter-spacing: .06em;
+}
+.issue__eyebrow-sep { color: var(--sw-line); }
 .issue__head hgroup h1 {
   font-size: clamp(2rem, 5vw, 3rem); letter-spacing: -.02em; margin-bottom: .4rem;
 }
@@ -804,4 +819,129 @@ form.htmx-request button[type=submit]::after {
   .hero { animation: none; }
   .site-header .sw-logo .bar { opacity: .35; transform: none; }
   .site-header .sw-logo .lit { opacity: 1; transform: none; }
+}
+
+/* ---------- 404 / not-found ---------- */
+.notfound { padding: 3.75rem 0 2rem; animation: hero-in .55s cubic-bezier(.2,.7,.2,1) both; max-width: var(--sw-measure); }
+.notfound__eyebrow {
+  display: inline-flex; align-items: center; gap: .75rem;
+  color: var(--sw-faint); font-family: var(--sw-mono);
+  font-size: .78rem; letter-spacing: .1em; text-transform: uppercase;
+  margin: 0 0 1.25rem;
+}
+.notfound__code {
+  color: var(--sw-highlight-ink); background: var(--sw-highlight-soft);
+  padding: .18rem .55rem; border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--sw-highlight) 25%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.notfound__rule { flex: 0 0 2rem; height: 1px; background: var(--sw-line); }
+.notfound__label { color: var(--sw-muted); }
+.notfound hgroup h1 {
+  font-size: clamp(2rem, 4.6vw, 3rem);
+  letter-spacing: -.02em; margin-bottom: .4rem;
+}
+.notfound hgroup h2 {
+  font-size: clamp(1.05rem, 2vw, 1.25rem); color: var(--sw-muted);
+  font-weight: 400; font-family: var(--sw-sans); letter-spacing: 0;
+  max-width: 44ch;
+}
+.notfound__lede {
+  font-size: var(--fs-lead); color: var(--sw-ink); opacity: .88;
+  margin-top: 1.25rem;
+}
+.notfound__cta {
+  margin-top: 1.75rem; display: flex; gap: 1rem; flex-wrap: wrap;
+  align-items: center; max-width: none;
+}
+.notfound__link { color: var(--sw-muted); font-weight: 500; text-decoration: none; }
+.notfound__link:hover { color: var(--sw-ink); }
+@media (max-width: 720px) {
+  .notfound { padding: 2.5rem 0 1rem; }
+  .notfound__cta { flex-direction: column; align-items: stretch; }
+  .notfound__cta a[role=button] { justify-content: center; }
+  .notfound__link { text-align: center; }
+}
+
+/* ---------- high-contrast (a11y) ---------- */
+@media (prefers-contrast: more) {
+  :root {
+    --sw-muted: #3a3843;
+    --sw-faint: #4a4854;
+    --sw-line: #b8b3a7;
+    --sw-line-soft: #cec9bd;
+    --sw-accent: #201caa;
+    --sw-accent-ink: #100b6f;
+    --sw-highlight-ink: #6a3a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --sw-muted: #dcd9e6;
+      --sw-faint: #c5c2d0;
+      --sw-line: #56546a;
+      --sw-line-soft: #40404f;
+      --sw-highlight-ink: #ffe8b8;
+    }
+  }
+  a { text-decoration: underline; }
+  .site-nav a { text-decoration: none; }
+  .issue-card, article, .how-it-works .steps li { border-width: 1.5px; }
+  :focus-visible { outline-width: 4px; }
+}
+
+/* ---------- print ---------- */
+@media print {
+  :root {
+    --sw-paper: #ffffff;
+    --sw-surface: #ffffff;
+    --sw-sunken: #ffffff;
+    --sw-ink: #000000;
+    --sw-muted: #333333;
+    --sw-faint: #555555;
+    --sw-line: #cccccc;
+    --sw-line-soft: #dddddd;
+    --sw-shadow-sm: none;
+    --sw-shadow: none;
+    --sw-shadow-lg: none;
+  }
+  html, body { background: #fff !important; color: #000 !important; }
+  body > main.container { max-width: none; padding: 0; }
+  .site-header, .site-footer, .skip-link, .hero__cta, .notfound__cta,
+  .issue-card__foot, .issue__toc, .cat-strip {
+    display: none !important;
+  }
+  a { color: #000 !important; text-decoration: none !important; }
+  .issue__item-title, .issues-index__title { color: #000 !important; }
+  /* Reveal the underlying source URL after every issue link, in a subtle
+     monospace, so the printed page still cites its sources. */
+  .issue__item-title[href]::after,
+  .issue-card__section li a[href]::after {
+    content: " " attr(href);
+    font-family: var(--sw-mono); font-size: .72rem; font-weight: 400;
+    color: #555; word-break: break-all; display: inline;
+  }
+  .extra-sources { color: #555 !important; }
+  .extra-sources .source-chip {
+    border: none !important; background: transparent !important;
+    padding: 0 .35rem 0 0 !important; color: #555 !important;
+  }
+  article, .issue-card {
+    border: none !important; box-shadow: none !important;
+    padding: 0 !important; margin: 0 !important; break-inside: avoid;
+  }
+  .issue-card::before { display: none; }
+  .issue__section, .issues-index__link { break-inside: avoid; }
+  .issue__section h3 .section-label { border-left-color: #000 !important; }
+  h1, h2, h3 { color: #000 !important; }
+  .issue__items li:hover { background: none !important; }
+  /* A quiet printed masthead in place of the removed header. */
+  main.container::before {
+    content: "Signalweek";
+    display: block;
+    font-family: var(--sw-serif);
+    font-size: 1.1rem; font-weight: 700;
+    letter-spacing: -.01em;
+    border-bottom: 1px solid #000;
+    padding-bottom: .35rem; margin-bottom: 1.25rem;
+  }
 }

@@ -1,0 +1,22 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<section class="notfound" aria-labelledby="notfound-heading">
+<p class="notfound__eyebrow" aria-hidden="true">
+<span class="notfound__code">404</span>
+<span class="notfound__rule"></span>
+<span class="notfound__label">Off the page</span>
+</p>
+<hgroup>
+<h1 id="notfound-heading">This week isn&rsquo;t here.</h1>
+<h2>The page you asked for doesn&rsquo;t exist &mdash; a mistyped date, a link from a draft that never shipped, or an issue that hasn&rsquo;t been published yet.</h2>
+</hgroup>
+<p class="notfound__lede">
+Signalweek publishes one issue a week. Every published issue is in the
+archive; the current week is on the front page.
+</p>
+<div class="notfound__cta">
+<a href="/" role="button">Read this week&rsquo;s issue &rarr;</a>
+<a href="/issues" class="notfound__link">Browse the archive</a>
+</div>
+</section>
+{% endblock %}

@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.engine import Engine
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from signalweek.db.session import get_engine
 from signalweek.ingest.classify import CATEGORIES, CATEGORY_LABELS
@@ -165,5 +166,24 @@ def create_app(
             items=detail.items,
         )
         return HTMLResponse(content=html)
+
+    _JSON_PREFIXES = ("/admin", "/health", "/docs", "/openapi.json", "/redoc")
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_exception_handler(request: Request, exc: StarletteHTTPException):
+        path = request.url.path
+        wants_json = (
+            any(path.startswith(p) for p in _JSON_PREFIXES)
+            or "application/json" in request.headers.get("accept", "")
+            and "text/html" not in request.headers.get("accept", "")
+        )
+        if exc.status_code == 404 and not wants_json:
+            return templates.TemplateResponse(
+                request,
+                "not_found.html.j2",
+                {"title": "Not found", "nav_current": None},
+                status_code=404,
+            )
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
     return app
