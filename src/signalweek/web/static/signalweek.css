@@ -18,7 +18,7 @@
   --sw-sunken:     #f4f1ea;
   --sw-ink:        #16151b;
   --sw-muted:      #605d68;
-  --sw-faint:      #8a8892;
+  --sw-faint:      #6c6a75;
   --sw-line:       #ebe6dc;
   --sw-line-soft:  #f2eee5;
 
@@ -127,6 +127,11 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   line-height: var(--lh-body);
+  /* The site-header/footer break out to full-bleed via a 100vw negative
+     margin. Clipping horizontally here prevents any stray scrollbar from
+     that breakout leaking a phantom horizontal scroll. `clip` (not `hidden`)
+     leaves the root as the scroll ancestor so position:sticky still works. */
+  overflow-x: clip;
 }
 body > main.container {
   max-width: var(--sw-page);
@@ -406,6 +411,7 @@ a { text-underline-offset: .18em; text-decoration-thickness: .08em; }
   letter-spacing: -.015em;
 }
 .issue-card h3 a { color: var(--sw-ink); text-decoration: none; }
+.issue-card h3 a:visited { color: var(--sw-ink); }
 .issue-card h3 a:hover { color: var(--sw-accent-ink); text-decoration: underline; text-decoration-color: var(--sw-highlight); }
 .issue-card__meta { color: var(--sw-faint); font-size: .88rem; margin: .5rem 0 0; }
 .issue-card__meta time { font-variant-numeric: tabular-nums; }
@@ -443,6 +449,7 @@ a { text-underline-offset: .18em; text-decoration-thickness: .08em; }
   font-size: 1.02rem; line-height: 1.4; letter-spacing: -.003em;
   border-bottom: 1px solid transparent; transition: color .12s ease, border-color .15s ease;
 }
+.issue-card__section li a:visited { color: var(--sw-ink); }
 .issue-card__section li a:hover {
   color: var(--sw-accent-ink);
   border-bottom-color: var(--sw-highlight);
@@ -491,6 +498,17 @@ article {
 
 /* ---------- issue page ---------- */
 .issue__head { margin-bottom: 1.75rem; }
+.issue__breadcrumb {
+  margin: 0 0 1rem; font-size: .88rem;
+}
+.issue__breadcrumb a {
+  color: var(--sw-muted); text-decoration: none;
+  font-weight: 500; letter-spacing: -.005em;
+  padding: .2rem .4rem .2rem 0;
+  transition: color .12s ease;
+}
+.issue__breadcrumb a:hover { color: var(--sw-ink); }
+.issue__breadcrumb a:visited { color: var(--sw-muted); }
 .issue__eyebrow {
   color: var(--sw-muted); font-family: var(--sw-mono); font-size: .78rem;
   text-transform: uppercase; letter-spacing: .08em; margin: 0 0 .75rem;
@@ -596,6 +614,7 @@ article {
   line-height: 1.35; display: inline;
   border-bottom: 1px solid transparent; transition: color .12s ease, border-color .15s ease;
 }
+.issue__item-title:visited { color: var(--sw-ink); }
 .issue__item-title:hover {
   color: var(--sw-accent-ink);
   border-bottom-color: var(--sw-highlight);
@@ -668,6 +687,7 @@ article {
   width: 1.6rem; text-align: right;
   transition: color .12s ease;
 }
+.issues-index__link:visited { color: var(--sw-ink); }
 .issues-index__link:hover {
   background: var(--sw-sunken);
   border-bottom-color: var(--sw-line);
@@ -907,7 +927,7 @@ form.htmx-request button[type=submit]::after {
   html, body { background: #fff !important; color: #000 !important; }
   body > main.container { max-width: none; padding: 0; }
   .site-header, .site-footer, .skip-link, .hero__cta, .notfound__cta,
-  .issue-card__foot, .issue__toc, .cat-strip {
+  .issue-card__foot, .issue__toc, .issue__breadcrumb, .cat-strip {
     display: none !important;
   }
   a { color: #000 !important; text-decoration: none !important; }
