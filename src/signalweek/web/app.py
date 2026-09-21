@@ -39,7 +39,7 @@ _logger = logging.getLogger(__name__)
 
 PRODUCT_NAME = "Signalweek"
 PRODUCT_TAGLINE = (
-    "A curated weekly digest of the AI industry — five fixed categories, "
+    "A curated weekly digest of the AI industry — "
     "every item citing a primary source."
 )
 
