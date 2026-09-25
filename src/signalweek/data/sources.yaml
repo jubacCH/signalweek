@@ -12,6 +12,14 @@
 #                   research, industry_moves. It is a *hint* only — clustering
 #                   may still re-classify an individual story.
 #   name:           Human-readable label, used in fallback bylines and admin UI.
+#   category_locked: Optional, default false. For clearly single-category
+#                   feeds (court dockets, regulatory registers): the hint
+#                   beats headline keywords. arXiv feeds are always locked
+#                   to research regardless of this flag.
+#
+# Sync the live registry after editing: ``python -m signalweek.cli sources sync``.
+# Frontier labs without an official feed use a community-maintained mirror
+# (Olshansk/rss-feeds on GitHub) that links back to the lab's own pages.
 
 sources:
   # ---- Frontier AI labs (models) -----------------------------------------
@@ -19,29 +27,38 @@ sources:
     url: https://openai.com/blog/rss.xml
     kind: rss
     category_hint: models
-  - name: Anthropic
-    url: https://www.anthropic.com/news/rss.xml
+  - name: Anthropic (news mirror)
+    url: https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml
     kind: rss
     category_hint: models
   - name: Google DeepMind
     url: https://deepmind.google/blog/rss.xml
     kind: rss
     category_hint: models
-  - name: Meta AI
-    url: https://ai.meta.com/blog/rss/
+  - name: Meta — AI research (engineering.fb.com)
+    url: https://engineering.fb.com/category/ai-research/feed/
     kind: rss
     category_hint: models
   - name: Mistral AI
-    url: https://mistral.ai/news/rss.xml
+    url: https://mistral.ai/rss.xml
     kind: rss
     category_hint: models
-  - name: xAI
-    url: https://x.ai/blog/rss.xml
+  # xAI publishes no feed and the community mirror stopped updating in
+  # May 2026, so NVIDIA (open models, inference stacks) takes its slot.
+  - name: NVIDIA blog
+    url: https://blogs.nvidia.com/feed/
     kind: rss
     category_hint: models
   - name: Hugging Face
     url: https://huggingface.co/blog/feed.xml
     kind: atom
+    category_hint: models
+
+  # GitHub has no official trending feed; GitHubTrendingRSS republishes the
+  # trending page daily as static RSS on GitHub Pages.
+  - name: GitHub trending — Python (weekly)
+    url: https://mshibanami.github.io/GitHubTrendingRSS/weekly/python.xml
+    kind: rss
     category_hint: models
 
   # ---- Research feeds ----------------------------------------------------
@@ -75,10 +92,18 @@ sources:
     url: https://digital-strategy.ec.europa.eu/en/news/rss.xml
     kind: rss
     category_hint: lawsuits_policy
-  - name: White House OSTP
-    url: https://www.whitehouse.gov/ostp/news-updates/feed/
+  - name: Federal Register — AI documents
+    url: https://www.federalregister.gov/api/v1/documents.rss?conditions%5Bterm%5D=%22artificial+intelligence%22
     kind: rss
     category_hint: lawsuits_policy
+    category_locked: true
+  # Court dockets: CourtListener's RECAP archive mirrors PACER; this is its
+  # public search feed for AI-related federal dockets, newest filings first.
+  - name: CourtListener — AI dockets (PACER/RECAP)
+    url: https://www.courtlistener.com/feed/search/?q=%22artificial+intelligence%22+OR+OpenAI+OR+Anthropic&type=r&order_by=dateFiled+desc
+    kind: atom
+    category_hint: lawsuits_policy
+    category_locked: true
   - name: NIST news
     url: https://www.nist.gov/news-events/news/rss.xml
     kind: rss
@@ -93,8 +118,9 @@ sources:
     url: https://news.crunchbase.com/feed/
     kind: rss
     category_hint: funding
-  - name: VentureBeat — AI
-    url: https://venturebeat.com/category/ai/feed/
+  # VentureBeat answers 429 to feed clients; SiliconANGLE covers the same beat.
+  - name: SiliconANGLE — AI
+    url: https://siliconangle.com/category/ai/feed/
     kind: rss
     category_hint: funding
 

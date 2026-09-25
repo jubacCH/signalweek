@@ -283,6 +283,57 @@ class TestSourcesList:
         assert "inactive" in out
 
 
+class TestSourcesSyncAndLock:
+    def test_sync_upserts_the_yaml_registry(self, engine: Engine, tmp_path) -> None:
+        path = tmp_path / "sources.yaml"
+        path.write_text(
+            "sources:\n"
+            "  - url: https://dockets.example/feed\n"
+            "    kind: atom\n"
+            "    category_hint: lawsuits_policy\n"
+            "    category_locked: true\n"
+            "  - url: https://arxiv.org/rss/cs.CL\n"
+            "    kind: arxiv_rss\n"
+            "    category_hint: research\n"
+        )
+        code, out, _ = _run(engine, ["sources", "sync", "--file", str(path)])
+        assert code == EXIT_OK
+        assert "2 added" in out
+
+        code, out, _ = _run(engine, ["sources", "sync", "--file", str(path)])
+        assert "2 unchanged" in out
+
+        _, listing, _ = _run(engine, ["sources", "list"])
+        assert "lawsuits_policy*" in listing
+        assert "research*" in listing
+        assert "never" in listing
+
+    def test_sync_rejects_an_invalid_file(self, engine: Engine, tmp_path) -> None:
+        path = tmp_path / "sources.yaml"
+        path.write_text("sources: []\n")
+        code, _, err = _run(engine, ["sources", "sync", "--file", str(path)])
+        assert code == 2
+        assert "non-empty" in err
+
+    def test_add_locked_marks_the_hint_as_authoritative(self, engine: Engine) -> None:
+        _run(
+            engine,
+            [
+                "sources",
+                "add",
+                "--url",
+                "https://dockets.example/feed",
+                "--kind",
+                "atom",
+                "--category",
+                "lawsuits_policy",
+                "--locked",
+            ],
+        )
+        _, listing, _ = _run(engine, ["sources", "list"])
+        assert "lawsuits_policy*" in listing
+
+
 class TestSourcesCandidates:
     def test_candidates_empty_registry(self, engine: Engine) -> None:
         code, out, _ = _run(engine, ["sources", "candidates"])

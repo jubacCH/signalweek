@@ -59,6 +59,7 @@ class AddSourceRequest(BaseModel):
     kind: str = Field(...)
     category_hint: str = Field(...)
     name: str | None = Field(default=None, max_length=255)
+    category_locked: bool = False
 
 
 def build_admin_router(engine_provider, admin_token: str | None) -> APIRouter:
@@ -97,6 +98,7 @@ def build_admin_router(engine_provider, admin_token: str | None) -> APIRouter:
                     sources_table.c.url,
                     sources_table.c.kind,
                     sources_table.c.category_hint,
+                    sources_table.c.category_locked,
                     sources_table.c.active,
                     sources_table.c.discovered,
                 ).order_by(sources_table.c.id.asc())
@@ -108,6 +110,7 @@ def build_admin_router(engine_provider, admin_token: str | None) -> APIRouter:
                     "url": row.url,
                     "kind": row.kind,
                     "category_hint": row.category_hint,
+                    "category_locked": bool(row.category_locked),
                     "active": bool(row.active),
                     "discovered": bool(row.discovered),
                 }
@@ -138,6 +141,7 @@ def build_admin_router(engine_provider, admin_token: str | None) -> APIRouter:
             kind=payload.kind,
             category_hint=payload.category_hint,
             name=payload.name.strip() if payload.name else None,
+            category_locked=payload.category_locked,
         )
         engine: Engine = engine_provider()
         with engine.begin() as conn:
@@ -148,6 +152,7 @@ def build_admin_router(engine_provider, admin_token: str | None) -> APIRouter:
                     sources_table.c.url,
                     sources_table.c.kind,
                     sources_table.c.category_hint,
+                    sources_table.c.category_locked,
                     sources_table.c.active,
                     sources_table.c.discovered,
                 ).where(sources_table.c.url == url)
@@ -170,6 +175,7 @@ def build_admin_router(engine_provider, admin_token: str | None) -> APIRouter:
                 "url": row.url,
                 "kind": row.kind,
                 "category_hint": row.category_hint,
+                "category_locked": bool(row.category_locked),
                 "active": bool(row.active),
                 "discovered": bool(row.discovered),
             },

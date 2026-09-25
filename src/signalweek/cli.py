@@ -13,7 +13,8 @@ that belongs in a library lives here.
 Usage::
 
     python -m signalweek.cli sources add --url URL --kind rss \\
-        --category models [--name NAME]
+        --category models [--name NAME] [--locked]
+    python -m signalweek.cli sources sync  [--file PATH]
     python -m signalweek.cli sources list
     python -m signalweek.cli sources disable --url URL
     python -m signalweek.cli sources candidates [--limit N]
@@ -46,8 +47,11 @@ from signalweek.digest.verify import verify_issue
 from signalweek.sources import (
     CATEGORY_HINTS,
     SOURCE_KINDS,
+    SourceRegistryError,
     SourceSpec,
+    is_category_locked,
     issues_table,
+    load_sources_yaml,
     source_candidates_table,
     sources_table,
     upsert_sources,
@@ -142,7 +146,23 @@ def _register_sources(subparsers: argparse._SubParsersAction) -> None:
         help="Category hint (one of the five digest sections).",
     )
     add.add_argument("--name", default=None, help="Human-readable label (optional).")
+    add.add_argument(
+        "--locked",
+        action="store_true",
+        help="Single-category source: the hint beats headline keywords.",
+    )
     add.set_defaults(_handler=_cmd_sources_add)
+
+    sync = sources_sub.add_parser(
+        "sync",
+        help="Upsert every entry of sources.yaml into the registry.",
+    )
+    sync.add_argument(
+        "--file",
+        default=None,
+        help="Path to a sources.yaml (default: the packaged registry).",
+    )
+    sync.set_defaults(_handler=_cmd_sources_sync)
 
     listing = sources_sub.add_parser("list", help="Print every source in the registry.")
     listing.set_defaults(_handler=_cmd_sources_list)
@@ -237,6 +257,7 @@ def _cmd_sources_add(
         kind=args.kind,
         category_hint=args.category,
         name=args.name.strip() if isinstance(args.name, str) else None,
+        category_locked=bool(args.locked),
     )
     result = upsert_sources(conn, [spec])
     if result.inserted:
@@ -245,6 +266,27 @@ def _cmd_sources_add(
         print(f"updated source {spec.url} ({spec.kind}, {spec.category_hint})", file=out)
     else:
         print(f"unchanged source {spec.url} ({spec.kind}, {spec.category_hint})", file=out)
+    return EXIT_OK
+
+
+def _cmd_sources_sync(
+    args: argparse.Namespace,
+    conn: Connection,
+    out: TextIO,
+    err: TextIO,
+    _now: datetime,
+) -> int:
+    try:
+        specs = load_sources_yaml(args.file)
+    except SourceRegistryError as exc:
+        print(str(exc), file=err)
+        return EXIT_USAGE
+    result = upsert_sources(conn, specs)
+    print(
+        f"synced {result.total} sources: {result.inserted} added, "
+        f"{result.updated} updated, {result.unchanged} unchanged",
+        file=out,
+    )
     return EXIT_OK
 
 
@@ -261,7 +303,9 @@ def _cmd_sources_list(
             sources_table.c.url,
             sources_table.c.kind,
             sources_table.c.category_hint,
+            sources_table.c.category_locked,
             sources_table.c.active,
+            sources_table.c.last_fetch_ok_at,
         ).order_by(sources_table.c.id.asc())
     ).all()
     if not rows:
@@ -270,7 +314,15 @@ def _cmd_sources_list(
     for row in rows:
         state = "active" if bool(row.active) else "inactive"
         hint = row.category_hint or "-"
-        print(f"{int(row.id):>4}  {state:<8}  {row.kind:<9}  {hint:<16}  {row.url}", file=out)
+        if row.category_hint and is_category_locked(row.kind, row.category_locked):
+            hint += "*"
+        last_ok = (
+            row.last_fetch_ok_at.strftime("%Y-%m-%dT%H:%MZ") if row.last_fetch_ok_at else "never"
+        )
+        print(
+            f"{int(row.id):>4}  {state:<8}  {row.kind:<9}  {hint:<16}  {last_ok:<17}  {row.url}",
+            file=out,
+        )
     return EXIT_OK
 
 

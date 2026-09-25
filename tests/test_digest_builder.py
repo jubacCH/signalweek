@@ -703,3 +703,34 @@ def test_extra_source_urls_collects_distinct_additional_outlets(
         "https://nytimes.com/rss.xml",
         "https://theverge.com/rss.xml",
     ]
+
+
+def test_arxiv_extra_sources_are_dropped_outside_research(curated_engine: Engine) -> None:
+    """AIC-12: no arXiv URL may appear in a non-Research section, citations included."""
+    with curated_engine.begin() as conn:
+        s_openai = _insert_source(conn, url="https://openai.com/blog/rss.xml")
+        s_arxiv = _insert_source(conn, url="https://arxiv.org/rss/cs.CL", category_hint="research")
+        s_verge = _insert_source(conn, url="https://theverge.com/rss.xml")
+        for source_id, suffix in ((s_openai, ""), (s_arxiv, "?a"), (s_verge, "?v")):
+            _insert_raw_item(
+                conn,
+                source_id=source_id,
+                url=f"https://openai.com/blog/gpt-5{suffix}",
+                canonical_url="https://openai.com/blog/gpt-5",
+                title="OpenAI unveils GPT-5",
+            )
+        _insert_cluster(
+            conn,
+            primary_url="https://openai.com/blog/gpt-5",
+            canonical_headline="OpenAI unveils GPT-5",
+            category="models",
+        )
+
+    with curated_engine.begin() as conn:
+        result = build_issue(conn, now=NOW, min_items=1)
+        row = conn.execute(
+            items_table.select().where(items_table.c.issue_id == result.issue_id)
+        ).one()
+
+    assert row.category == "models"
+    assert row.extra_source_urls == ["https://theverge.com/rss.xml"]
