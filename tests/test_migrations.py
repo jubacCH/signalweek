@@ -20,6 +20,8 @@ CURATED_TABLES = {
     "items",
     "source_candidates",
     "source_health_events",
+    "alerts",
+    "pipeline_runs",
 }
 PERSONAL_AGGREGATOR_TABLES = {"users", "signals", "digests", "api_tokens"}
 
@@ -236,7 +238,7 @@ def test_downgrade_one_removes_source_health_additions(tmp_path: Path) -> None:
     cfg = _alembic_config(db_url)
 
     command.upgrade(cfg, "head")
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, "0004_source_discovery")
 
     engine = create_engine(db_url)
     try:
@@ -246,7 +248,7 @@ def test_downgrade_one_removes_source_health_additions(tmp_path: Path) -> None:
     finally:
         engine.dispose()
 
-    # After downgrading one step from head, we are back on the source-discovery
+    # After downgrading to 0004, we are back on the source-discovery
     # schema — the health-tracking additions are gone.
     assert "source_health_events" not in tables
     assert "consecutive_fetch_failures" not in source_columns
@@ -259,7 +261,49 @@ def test_downgrade_one_removes_source_health_additions(tmp_path: Path) -> None:
     assert "discovered" in source_columns
     assert "source_candidates" in tables
     # And the other curated tables.
-    assert (CURATED_TABLES - {"source_health_events"}).issubset(tables)
+    assert (CURATED_TABLES - {"source_health_events", "alerts", "pipeline_runs"}).issubset(tables)
+
+
+def test_downgrade_one_removes_alerts_and_pipeline_runs(tmp_path: Path) -> None:
+    db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
+    cfg = _alembic_config(db_url)
+
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "-1")
+
+    engine = create_engine(db_url)
+    try:
+        tables = set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+
+    assert "alerts" not in tables
+    assert "pipeline_runs" not in tables
+    assert "source_health_events" in tables
+
+
+def test_alerts_reason_check_constraint(tmp_path: Path) -> None:
+    db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
+    command.upgrade(_alembic_config(db_url), "head")
+
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO alerts (created_at, reason) "
+                    "VALUES ('2026-09-25 00:00:00', 'missed_run')"
+                )
+            )
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO alerts (created_at, reason) "
+                    "VALUES ('2026-09-25 00:00:00', 'bogus')"
+                )
+            )
+    finally:
+        engine.dispose()
 
 
 def test_downgrade_to_base_removes_all_tables(tmp_path: Path) -> None:

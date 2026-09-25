@@ -76,8 +76,9 @@ _SENTENCE_END_RE = re.compile(r"[.!?](?:\s|$)")
 class BuildResult:
     """Outcome of one :func:`build_issue` run.
 
-    ``status`` is either ``'held'`` (fewer than ``min_items`` items) or
-    ``'published'``. ``items_per_category`` records how many items landed in
+    ``status`` is ``'held'`` (fewer than ``min_items`` items),
+    ``'published'``, or ``'draft'`` when the caller asked to publish later via
+    :func:`publish_issue`. ``items_per_category`` records how many items landed in
     each of the five fixed buckets; ``rejected_by_dedup`` counts candidate
     clusters dropped by the 12-week URL dedup guard.
     """
@@ -105,6 +106,7 @@ def build_issue(
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     dedup_window_issues: int = DEFAULT_DEDUP_WINDOW_ISSUES,
     weights: RankingWeights = DEFAULT_WEIGHTS,
+    publish: bool = True,
 ) -> BuildResult:
     """Assemble one weekly issue from the current DB state.
 
@@ -115,6 +117,10 @@ def build_issue(
     Raises :class:`IssueAlreadyExistsError` when an ``issues`` row for the
     same ``week_of`` already exists — building is a one-shot per week; a
     re-run should delete the previous row first.
+
+    With ``publish=False`` an issue that clears ``min_items`` is left as
+    ``'draft'`` so the caller can verify links before flipping it to
+    ``'published'`` with :func:`publish_issue` (spec: build → verify → publish).
     """
     connection = _as_connection(bind)
     now = _ensure_aware(now)
@@ -164,7 +170,10 @@ def build_issue(
         picked.extend(top)
 
     total = len(picked)
-    status = "published" if total >= min_items else "held"
+    if total < min_items:
+        status = "held"
+    else:
+        status = "published" if publish else "draft"
 
     issue_id = _insert_draft_issue(connection, week_of=week_of)
     _insert_items(
@@ -186,6 +195,27 @@ def build_issue(
         rejected_by_dedup=rejected,
         candidates_considered=len(cluster_rows),
     )
+
+
+def publish_issue(
+    bind: Session | Connection,
+    *,
+    issue_id: int,
+    now: datetime,
+    min_items: int = DEFAULT_MIN_ITEMS,
+) -> tuple[str, int]:
+    """Flip a verified draft to ``'published'``, or ``'held'`` if too thin.
+
+    Items are recounted here because verify may have dropped dead links since
+    the build. Returns ``(status, item_count)``.
+    """
+    connection = _as_connection(bind)
+    count = len(
+        connection.execute(select(items_table.c.id).where(items_table.c.issue_id == issue_id)).all()
+    )
+    status = "published" if count >= min_items else "held"
+    _finalise_status(connection, issue_id=issue_id, status=status, now=_ensure_aware(now))
+    return status, count
 
 
 # ---------------------------------------------------------------------------
