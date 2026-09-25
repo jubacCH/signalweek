@@ -16,18 +16,31 @@ If keyword matches are absent, the source hint wins; if that is also missing
 the classifier falls back to ``industry_moves``. That guarantees the pass is
 total by construction — every cluster ends up in exactly one of the five
 buckets.
+
+Keywords never override a *locked* source (``sources.category_locked``, set
+for clearly single-category feeds such as court dockets) — its hint is used
+outright. arXiv is always locked to ``research``: a paper abstract full of
+"LLM"/"fine-tuning" vocabulary is still a paper, not a model release. That
+rule keys on both the source kind and the ``arxiv.org`` host of the story's
+primary URL, so it also holds for discovered sources without a hint.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
-from signalweek.sources import clusters_table, raw_items_table, sources_table
+from signalweek.sources import (
+    clusters_table,
+    is_category_locked,
+    raw_items_table,
+    sources_table,
+)
 
 CATEGORIES: tuple[str, ...] = (
     "models",
@@ -47,6 +60,9 @@ CATEGORY_LABELS: dict[str, str] = {
 
 # The catch-all bucket used when neither keywords nor a hint apply.
 FALLBACK_CATEGORY = "industry_moves"
+
+# Stories whose primary URL lives on arXiv are always research.
+RESEARCH_ONLY_HOSTS: frozenset[str] = frozenset({"arxiv.org", "export.arxiv.org"})
 
 # Tie-break priority applied when several categories share the top keyword
 # score AND the source hint is not among them. The broadest bucket,
@@ -260,8 +276,16 @@ def _compile_lexicons() -> dict[str, tuple[re.Pattern[str], ...]]:
 _COMPILED_LEXICONS: dict[str, tuple[re.Pattern[str], ...]] = _compile_lexicons()
 
 
-def classify_text(text: str, *, category_hint: str | None = None) -> str:
+def classify_text(
+    text: str,
+    *,
+    category_hint: str | None = None,
+    category_locked: bool = False,
+) -> str:
     """Return the best-fit category for ``text``.
+
+    When ``category_locked`` is true and ``category_hint`` is valid, the hint
+    is returned without looking at keywords.
 
     Word-level matches from each category's lexicon are counted. If a single
     category has the top score it wins. On a tie, ``category_hint`` wins when
@@ -271,6 +295,9 @@ def classify_text(text: str, *, category_hint: str | None = None) -> str:
 
     The return value is always one of :data:`CATEGORIES`.
     """
+    if category_locked and category_hint in CATEGORIES:
+        return category_hint
+
     scores = _score(text or "")
     top_score = max(scores.values())
 
@@ -342,7 +369,10 @@ def classify_clusters(bind: Session | Connection) -> ClassifyRunResult:
             clusters_table.c.id,
             clusters_table.c.canonical_headline,
             clusters_table.c.category,
+            clusters_table.c.primary_url,
+            sources_table.c.kind,
             sources_table.c.category_hint,
+            sources_table.c.category_locked,
         )
         .select_from(
             clusters_table.outerjoin(
@@ -364,8 +394,16 @@ def classify_clusters(bind: Session | Connection) -> ClassifyRunResult:
             continue
         seen.add(cluster_id)
 
-        hint = row.category_hint if row.category_hint in CATEGORIES else row.category
-        chosen = classify_text(row.canonical_headline, category_hint=hint)
+        if _is_research_only(row.kind, row.primary_url):
+            chosen = "research"
+        else:
+            locked = row.category_hint in CATEGORIES and is_category_locked(
+                row.kind, row.category_locked
+            )
+            hint = row.category_hint if row.category_hint in CATEGORIES else row.category
+            chosen = classify_text(
+                row.canonical_headline, category_hint=hint, category_locked=locked
+            )
         result.categories[cluster_id] = chosen
 
         if chosen == row.category:
@@ -378,6 +416,18 @@ def classify_clusters(bind: Session | Connection) -> ClassifyRunResult:
         result.updated += 1
 
     return result
+
+
+def is_research_only_url(url: str | None) -> bool:
+    """Whether ``url`` is hosted on arXiv (and so may only appear in Research)."""
+    host = (urlsplit(url or "").hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host in RESEARCH_ONLY_HOSTS
+
+
+def _is_research_only(kind: str | None, primary_url: str | None) -> bool:
+    return kind == "arxiv_rss" or is_research_only_url(primary_url)
 
 
 def _as_connection(bind: Session | Connection) -> Connection:

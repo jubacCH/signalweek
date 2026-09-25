@@ -81,6 +81,7 @@ def test_curated_tables_have_expected_columns(tmp_path: Path) -> None:
         "url",
         "kind",
         "category_hint",
+        "category_locked",
         "active",
         "discovered",
         "discovered_first_seen_week",
@@ -264,12 +265,12 @@ def test_downgrade_one_removes_source_health_additions(tmp_path: Path) -> None:
     assert (CURATED_TABLES - {"source_health_events", "alerts", "pipeline_runs"}).issubset(tables)
 
 
-def test_downgrade_one_removes_alerts_and_pipeline_runs(tmp_path: Path) -> None:
+def test_downgrade_below_0006_removes_alerts_and_pipeline_runs(tmp_path: Path) -> None:
     db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
     cfg = _alembic_config(db_url)
 
     command.upgrade(cfg, "head")
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, "0005_source_health")
 
     engine = create_engine(db_url)
     try:
@@ -341,3 +342,36 @@ def test_upgrade_after_downgrade_reapplies_cleanly(tmp_path: Path) -> None:
 
     assert CURATED_TABLES.issubset(tables)
     assert PERSONAL_AGGREGATOR_TABLES.isdisjoint(tables)
+
+
+def test_0007_locks_existing_arxiv_sources(tmp_path: Path) -> None:
+    db_url = f"sqlite:///{tmp_path / 'lock.db'}"
+    cfg = _alembic_config(db_url)
+    command.upgrade(cfg, "0006_alerts_pipeline_runs")
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sources (url, kind, category_hint) VALUES "
+                "('https://arxiv.org/rss/cs.AI', 'arxiv_rss', 'research'), "
+                "('https://press.example/feed', 'rss', 'funding')"
+            )
+        )
+    command.upgrade(cfg, "head")
+    with engine.connect() as conn:
+        rows = dict(conn.execute(text("SELECT url, category_locked FROM sources")).all())
+    engine.dispose()
+    assert rows == {"https://arxiv.org/rss/cs.AI": 1, "https://press.example/feed": 0}
+
+
+def test_downgrade_one_drops_category_locked(tmp_path: Path) -> None:
+    db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
+    cfg = _alembic_config(db_url)
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "-1")
+    engine = create_engine(db_url)
+    try:
+        columns = {c["name"] for c in inspect(engine).get_columns("sources")}
+    finally:
+        engine.dispose()
+    assert "category_locked" not in columns

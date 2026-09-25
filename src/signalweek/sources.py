@@ -64,6 +64,16 @@ CATEGORY_HINTS: frozenset[str] = frozenset(
 
 SOURCE_KINDS: frozenset[str] = frozenset({"rss", "atom", "arxiv_rss"})
 
+# Source kinds whose items can only ever belong to one section, whatever the
+# YAML says: arXiv listings are research papers, full stop.
+ALWAYS_LOCKED_KINDS: frozenset[str] = frozenset({"arxiv_rss"})
+
+
+def is_category_locked(kind: str | None, category_locked: bool | None) -> bool:
+    """Whether a source's ``category_hint`` should override keyword matches."""
+    return bool(category_locked) or kind in ALWAYS_LOCKED_KINDS
+
+
 sources_metadata = MetaData()
 
 sources_table = Table(
@@ -73,6 +83,16 @@ sources_table = Table(
     Column("url", String(2048), nullable=False, unique=True, index=True),
     Column("kind", String(32), nullable=False),
     Column("category_hint", String(64), nullable=True),
+    # When set, the classifier uses ``category_hint`` outright instead of
+    # letting headline keywords override it — for clearly single-category
+    # feeds (arXiv, court dockets). Mirrors migration 0007.
+    Column(
+        "category_locked",
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    ),
     Column("active", Boolean, nullable=False, default=True, server_default="1"),
     # Discovery provenance for sources auto-promoted from the citation
     # stream — see :mod:`signalweek.ingest.discover`. Static YAML-seeded
@@ -284,6 +304,7 @@ class SourceSpec:
     kind: str
     category_hint: str
     name: str | None = None
+    category_locked: bool = False
 
 
 class SourceRegistryError(ValueError):
@@ -350,12 +371,16 @@ def _parse_entry(entry: Any, *, source: str, index: int) -> SourceSpec:
         )
     if name is not None and not isinstance(name, str):
         raise SourceRegistryError(f"{where}: 'name', if given, must be a string")
+    category_locked = entry.get("category_locked", False)
+    if not isinstance(category_locked, bool):
+        raise SourceRegistryError(f"{where}: 'category_locked', if given, must be a boolean")
 
     return SourceSpec(
         url=url.strip(),
         kind=kind,
         category_hint=category_hint,
         name=name.strip() if isinstance(name, str) else None,
+        category_locked=category_locked,
     )
 
 
@@ -378,8 +403,8 @@ def upsert_sources(
 ) -> UpsertResult:
     """Insert or update rows in ``sources`` from ``specs``.
 
-    An entry whose ``url`` already exists has its ``kind``, ``category_hint``
-    and ``active`` flag brought back into line with the YAML — this is how a
+    An entry whose ``url`` already exists has its ``kind``, ``category_hint``,
+    ``category_locked`` and ``active`` flags brought back into line with the YAML — this is how a
     hint reclassification or a temporarily-disabled source flips back on.
     Rows already present but not mentioned in ``specs`` are left untouched;
     retiring a source is a separate, deliberate operation.
@@ -396,9 +421,11 @@ def upsert_sources(
                 sources_table.c.id,
                 sources_table.c.kind,
                 sources_table.c.category_hint,
+                sources_table.c.category_locked,
                 sources_table.c.active,
             ).where(sources_table.c.url == spec.url)
         ).first()
+        locked = is_category_locked(spec.kind, spec.category_locked)
 
         if existing is None:
             connection.execute(
@@ -406,6 +433,7 @@ def upsert_sources(
                     url=spec.url,
                     kind=spec.kind,
                     category_hint=spec.category_hint,
+                    category_locked=locked,
                     active=True,
                 )
             )
@@ -415,6 +443,7 @@ def upsert_sources(
         needs_update = (
             existing.kind != spec.kind
             or existing.category_hint != spec.category_hint
+            or bool(existing.category_locked) is not locked
             or bool(existing.active) is not True
         )
         if needs_update:
@@ -424,6 +453,7 @@ def upsert_sources(
                 .values(
                     kind=spec.kind,
                     category_hint=spec.category_hint,
+                    category_locked=locked,
                     active=True,
                 )
             )
