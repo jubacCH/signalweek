@@ -51,6 +51,14 @@ def run_migrations_online() -> None:
     )
     with connectable.connect() as connection:
         is_sqlite = connection.dialect.name == "sqlite"
+        if is_sqlite:
+            # Batch mode rebuilds a table as copy → DROP → rename. With
+            # foreign keys on (signalweek.db.session turns them on for every
+            # connection) that DROP fires ON DELETE CASCADE and silently
+            # empties child tables — it wiped raw_items once. The pragma is
+            # ignored inside a transaction, so set it and commit first.
+            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -58,6 +66,10 @@ def run_migrations_online() -> None:
         )
         with context.begin_transaction():
             context.run_migrations()
+        if is_sqlite:
+            violations = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+            if violations:
+                raise RuntimeError(f"migration left foreign-key violations: {violations[:5]}")
 
 
 if context.is_offline_mode():
