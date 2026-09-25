@@ -6,6 +6,7 @@ scheduler, nothing *seeded* the sources) slipped through. These tests assert the
 app actually wires those into startup, so the deployed product is not a dead
 pipeline.
 """
+
 from __future__ import annotations
 
 from apscheduler.schedulers.background import BackgroundScheduler

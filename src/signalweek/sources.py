@@ -233,6 +233,49 @@ items_table = Table(
 )
 
 
+# Reason codes an ``alerts`` row may carry. ``insufficient_items``: a week
+# ended below the publish floor (spec criterion 15) and was held.
+# ``missed_run``: a weekly slot passed with no issue built. ``pipeline_failed``:
+# a scheduled job raised. Mirrors the table created by migration 0006.
+ALERT_REASONS: tuple[str, ...] = ("insufficient_items", "missed_run", "pipeline_failed")
+
+alerts_table = Table(
+    "alerts",
+    sources_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, index=True),
+    Column("reason", String(32), nullable=False, index=True),
+    Column("job", String(32), nullable=True),
+    Column("week_of", Date, nullable=True),
+    Column("detail", Text, nullable=True),
+    CheckConstraint(
+        "reason IN ('insufficient_items', 'missed_run', 'pipeline_failed')",
+        name="ck_alerts_reason",
+    ),
+)
+
+# One row per scheduled job execution (hourly ingest, weekly pipeline) so
+# every run is measurable (spec criterion 16). ``item_count`` is the number
+# of raw_items inserted for ingest and the published item count for the
+# weekly pipeline. Mirrors the table created by migration 0006.
+pipeline_runs_table = Table(
+    "pipeline_runs",
+    sources_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("job", String(32), nullable=False, index=True),
+    Column("started_at", DateTime(timezone=True), nullable=False, index=True),
+    Column("finished_at", DateTime(timezone=True), nullable=True),
+    Column("status", String(16), nullable=False),
+    Column("item_count", Integer, nullable=True),
+    Column("week_of", Date, nullable=True),
+    Column("detail", Text, nullable=True),
+    CheckConstraint(
+        "status IN ('running', 'ok', 'failed', 'skipped')",
+        name="ck_pipeline_runs_status",
+    ),
+)
+
+
 @dataclass(frozen=True)
 class SourceSpec:
     """A single entry from ``sources.yaml`` after validation."""
@@ -391,9 +434,7 @@ def upsert_sources(
     return UpsertResult(inserted=inserted, updated=updated, unchanged=unchanged)
 
 
-def seed_sources_if_empty(
-    bind: Session | Connection, path: str | Path | None = None
-) -> int:
+def seed_sources_if_empty(bind: Session | Connection, path: str | Path | None = None) -> int:
     """Seed the registry from the packaged ``sources.yaml`` the first time the
     app boots against an empty ``sources`` table. Idempotent: a no-op when any
     source already exists. Returns the number of sources seeded.
