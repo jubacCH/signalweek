@@ -18,7 +18,6 @@ CURATED_TABLES = {
     "clusters",
     "issues",
     "items",
-    "source_candidates",
     "source_health_events",
     "alerts",
     "pipeline_runs",
@@ -84,26 +83,12 @@ def test_curated_tables_have_expected_columns(tmp_path: Path) -> None:
         "name",
         "category_locked",
         "active",
-        "discovered",
-        "discovered_first_seen_week",
-        "discovered_cite_count",
         "consecutive_fetch_failures",
         "last_fetch_ok_at",
         "last_fetch_error_at",
         "last_item_at",
         "deactivated_at",
         "deactivation_reason",
-    }
-    assert columns["source_candidates"] == {
-        "id",
-        "domain",
-        "first_seen_week",
-        "last_seen_week",
-        "cite_count",
-        "distinct_weeks_count",
-        "promoted",
-        "promoted_at",
-        "promoted_source_id",
     }
     assert columns["source_health_events"] == {
         "id",
@@ -387,7 +372,7 @@ def test_downgrade_one_drops_cluster_membership_columns(tmp_path: Path) -> None:
     db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
     cfg = _alembic_config(db_url)
     command.upgrade(cfg, "head")
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, "0008_item_byline")
     engine = create_engine(db_url)
     try:
         raw_items = {c["name"] for c in inspect(engine).get_columns("raw_items")}
@@ -449,3 +434,48 @@ def test_rebuilding_sources_does_not_cascade_delete_child_rows(tmp_path: Path) -
         events = conn.execute(text("SELECT count(*) FROM source_health_events")).scalar_one()
     engine.dispose()
     assert (raw_items, events) == (1, 1)
+
+
+def test_0010_drops_source_discovery_schema(tmp_path: Path) -> None:
+    db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
+    cfg = _alembic_config(db_url)
+    command.upgrade(cfg, "0009_cluster_embeddings")
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sources (id, url, kind, category_hint) "
+                "VALUES (1, 'https://a.example/feed', 'rss', 'models')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO raw_items "
+                "(source_id, url, canonical_url, title, fetched_at, first_seen_at) "
+                "VALUES (1, 'https://a.example/1', 'https://a.example/1', 'T', "
+                "'2026-09-25', '2026-09-25')"
+            )
+        )
+    command.upgrade(cfg, "0010_drop_source_discovery")
+    try:
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+        sources = {c["name"] for c in inspector.get_columns("sources")}
+        with engine.connect() as conn:
+            raw_items = conn.execute(text("SELECT count(*) FROM raw_items")).scalar_one()
+    finally:
+        engine.dispose()
+    assert "source_candidates" not in tables
+    assert not {"discovered", "discovered_first_seen_week", "discovered_cite_count"} & sources
+    assert raw_items == 1
+
+    command.downgrade(cfg, "0009_cluster_embeddings")
+    engine = create_engine(db_url)
+    try:
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+        sources = {c["name"] for c in inspector.get_columns("sources")}
+    finally:
+        engine.dispose()
+    assert "source_candidates" in tables
+    assert "discovered" in sources

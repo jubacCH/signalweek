@@ -26,7 +26,6 @@ from signalweek.db.session import create_session_factory, get_engine
 from signalweek.ingest.classify import CATEGORIES, CATEGORY_LABELS
 from signalweek.scheduler import create_scheduler, schedule_startup_recovery
 from signalweek.sources import seed_sources_if_empty, sync_source_names
-from signalweek.web.admin import register_admin_router, resolve_admin_token
 from signalweek.web.archive import (
     load_published_issue_by_week,
     load_published_issues,
@@ -42,7 +41,6 @@ PRODUCT_TAGLINE = "A curated weekly digest of the AI industry — every item cit
 
 def create_app(
     engine: Engine | None = None,
-    admin_token: str | None = None,
     *,
     start_background: bool | None = None,
     scheduler=None,
@@ -51,10 +49,7 @@ def create_app(
 
     ``engine`` lets tests inject an isolated database; production callers
     can omit it and the app resolves the process-wide engine lazily on
-    every request. ``admin_token`` overrides the ``SIGNALWEEK_ADMIN_TOKEN``
-    environment variable — when neither is set the ``/admin`` routes are
-    mounted but respond with 503 so the surface is discoverable without
-    being exploitable.
+    every request.
     """
 
     _start_background = (engine is None) if start_background is None else start_background
@@ -109,12 +104,6 @@ def create_app(
     def _resolve_engine() -> Engine:
         return engine if engine is not None else get_engine()
 
-    register_admin_router(
-        app,
-        _resolve_engine,
-        admin_token=resolve_admin_token(admin_token),
-    )
-
     @app.get("/health", response_class=JSONResponse)
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -168,7 +157,7 @@ def create_app(
         )
         return HTMLResponse(content=html)
 
-    _JSON_PREFIXES = ("/admin", "/health", "/docs", "/openapi.json", "/redoc")
+    _JSON_PREFIXES = ("/health", "/docs", "/openapi.json", "/redoc")
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_exception_handler(request: Request, exc: StarletteHTTPException):

@@ -7,6 +7,9 @@ feedparser>=6.0
 jinja2>=3.1
 pyyaml>=6.0
 uvicorn[standard]>=0.29
+numpy>=1.26
+onnxruntime>=1.17
+tokenizers>=0.15
 
 [dev]
 pytest>=8.0
