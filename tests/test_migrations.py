@@ -375,3 +375,39 @@ def test_downgrade_one_drops_category_locked(tmp_path: Path) -> None:
     finally:
         engine.dispose()
     assert "category_locked" not in columns
+
+
+def test_rebuilding_sources_does_not_cascade_delete_child_rows(tmp_path: Path) -> None:
+    """SQLite batch mode recreates ``sources`` (copy, DROP, rename). With FKs on,
+    the DROP cascaded into raw_items and wiped them in production (AIC-12)."""
+    db_url = f"sqlite:///{tmp_path / 'fk.db'}"
+    cfg = _alembic_config(db_url)
+    command.upgrade(cfg, "0006_alerts_pipeline_runs")
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sources (id, url, kind, category_hint) "
+                "VALUES (1, 'https://a.example/feed', 'rss', 'models')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO raw_items "
+                "(source_id, url, canonical_url, title, fetched_at, first_seen_at) "
+                "VALUES (1, 'https://a.example/1', 'https://a.example/1', 'T', "
+                "'2026-09-25', '2026-09-25')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO source_health_events (source_id, at, action, reason) "
+                "VALUES (1, '2026-09-25', 'deactivated', 'fetch_failures')"
+            )
+        )
+    command.upgrade(cfg, "head")
+    with engine.connect() as conn:
+        raw_items = conn.execute(text("SELECT count(*) FROM raw_items")).scalar_one()
+        events = conn.execute(text("SELECT count(*) FROM source_health_events")).scalar_one()
+    engine.dispose()
+    assert (raw_items, events) == (1, 1)
