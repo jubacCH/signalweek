@@ -142,6 +142,19 @@ def test_fixed_priority_used_when_hint_not_in_top_scorers() -> None:
     assert classify_text(text, category_hint="research") == "funding"
 
 
+def test_locked_hint_beats_keywords() -> None:
+    headline = "Startup raises Series B to ship a new LLM"
+    assert classify_text(headline, category_hint="lawsuits_policy") != "lawsuits_policy"
+    assert (
+        classify_text(headline, category_hint="lawsuits_policy", category_locked=True)
+        == "lawsuits_policy"
+    )
+
+
+def test_locked_without_a_valid_hint_falls_back_to_keywords() -> None:
+    assert classify_text("OpenAI unveils GPT-5", category_locked=True) == "models"
+
+
 def test_matching_is_case_insensitive_and_word_bounded() -> None:
     # Word-bounded: "release" appears in "releases" (bounded on either side).
     assert classify_text("Team RELEASES a new checkpoint") == "models"
@@ -176,10 +189,18 @@ def _insert_source(
     *,
     url: str,
     category_hint: str | None = "industry_moves",
+    kind: str = "rss",
+    category_locked: bool = False,
 ) -> int:
     result = conn.execute(
         sources_table.insert()
-        .values(url=url, kind="rss", category_hint=category_hint, active=True)
+        .values(
+            url=url,
+            kind=kind,
+            category_hint=category_hint,
+            category_locked=category_locked,
+            active=True,
+        )
         .returning(sources_table.c.id)
     )
     return int(result.scalar_one())
@@ -478,3 +499,108 @@ def test_classify_clusters_handles_missing_anchor_raw_item(
     # No keyword hits → fall back to the stored category as the "hint".
     assert stored[cluster_id] == "research"
     assert result.unchanged == 1
+
+
+# A real-shaped arXiv abstract title stuffed with Models-lexicon terms.
+ARXIV_MODEL_HEADLINE = (
+    "Fine-tuning open-weights LLM checkpoints: a multimodal foundation model "
+    "release with a longer context window, shipped as a reasoning model"
+)
+
+
+def test_arxiv_item_full_of_model_keywords_is_classified_as_research(
+    curated_engine: Engine,
+) -> None:
+    """AIC-12: arXiv abstracts must never land in Models, however model-ish."""
+    assert classify_text(ARXIV_MODEL_HEADLINE, category_hint="research") == "models"
+
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(
+            conn,
+            url="https://arxiv.org/rss/cs.CL",
+            kind="arxiv_rss",
+            category_hint="research",
+        )
+        _insert_raw_item(
+            conn,
+            source_id=source_id,
+            url="https://arxiv.org/abs/2609.01234",
+            title=ARXIV_MODEL_HEADLINE,
+        )
+        cluster_id = _insert_cluster(
+            conn,
+            primary_url="https://arxiv.org/abs/2609.01234",
+            canonical_headline=ARXIV_MODEL_HEADLINE,
+            category="models",
+        )
+
+    with curated_engine.begin() as conn:
+        result = classify_clusters(conn)
+        stored = _cluster_categories(conn)
+
+    assert result.categories == {cluster_id: "research"}
+    assert stored == {cluster_id: "research"}
+
+
+def test_arxiv_primary_url_is_research_even_from_an_unhinted_source(
+    curated_engine: Engine,
+) -> None:
+    """A discovered/generic feed linking an arXiv paper still lands in Research."""
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(
+            conn, url="https://aggregator.example.com/feed", category_hint=None
+        )
+        _insert_raw_item(
+            conn,
+            source_id=source_id,
+            url="https://arxiv.org/abs/2609.05555",
+            title=ARXIV_MODEL_HEADLINE,
+        )
+        cluster_id = _insert_cluster(
+            conn,
+            primary_url="https://arxiv.org/abs/2609.05555",
+            canonical_headline=ARXIV_MODEL_HEADLINE,
+            category="models",
+        )
+
+    with curated_engine.begin() as conn:
+        classify_clusters(conn)
+        assert _cluster_categories(conn) == {cluster_id: "research"}
+
+
+def test_locked_source_hint_beats_keywords_in_classify_clusters(
+    curated_engine: Engine,
+) -> None:
+    headline = "OpenAI raises funding round as judge weighs GPT release"
+    with curated_engine.begin() as conn:
+        docket = _insert_source(
+            conn,
+            url="https://dockets.example.com/feed",
+            category_hint="lawsuits_policy",
+            category_locked=True,
+        )
+        press = _insert_source(conn, url="https://press.example.com/feed", category_hint="funding")
+        _insert_raw_item(
+            conn, source_id=docket, url="https://dockets.example.com/1", title=headline
+        )
+        _insert_raw_item(conn, source_id=press, url="https://press.example.com/1", title=headline)
+        locked_id = _insert_cluster(
+            conn,
+            primary_url="https://dockets.example.com/1",
+            canonical_headline=headline,
+            category="funding",
+        )
+        unlocked_id = _insert_cluster(
+            conn,
+            primary_url="https://press.example.com/1",
+            canonical_headline=headline,
+            category="funding",
+        )
+
+    with curated_engine.begin() as conn:
+        classify_clusters(conn)
+        stored = _cluster_categories(conn)
+
+    assert stored[locked_id] == "lawsuits_policy"
+    # The same headline from an unlocked source still follows keywords.
+    assert stored[unlocked_id] == "funding"
