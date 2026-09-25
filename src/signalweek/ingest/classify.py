@@ -22,7 +22,7 @@ for clearly single-category feeds such as court dockets) — its hint is used
 outright. arXiv is always locked to ``research``: a paper abstract full of
 "LLM"/"fine-tuning" vocabulary is still a paper, not a model release. That
 rule keys on both the source kind and the ``arxiv.org`` host of the story's
-primary URL, so it also holds for discovered sources without a hint.
+primary URL, so it also holds for sources without a hint.
 """
 
 from __future__ import annotations
