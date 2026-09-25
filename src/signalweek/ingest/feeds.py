@@ -21,7 +21,7 @@ the ``industry_moves`` category, not a first-class fast path).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from time import struct_time
 from typing import Any
 
@@ -36,6 +36,10 @@ from signalweek.sources import raw_items_table, sources_table
 
 DEFAULT_TIMEOUT_SECONDS = 15.0
 DEFAULT_USER_AGENT = "signalweek-ingest/0.1 (+https://signalweek.example)"
+# Entries whose feed date is older than this are never stored. Without it a
+# newly added feed's whole archive would get ``first_seen_at = now`` and pass
+# as this week's news. Undated entries are always kept.
+DEFAULT_MAX_ENTRY_AGE = timedelta(days=7)
 
 
 class FetchError(RuntimeError):
@@ -143,12 +147,15 @@ def ingest_source(
     client: httpx.Client | None = None,
     content: bytes | str | None = None,
     now: datetime | None = None,
+    max_entry_age: timedelta | None = DEFAULT_MAX_ENTRY_AGE,
 ) -> SourceIngestResult:
     """Fetch a single source and persist any new items into ``raw_items``.
 
     Passing ``content`` skips the network fetch and is intended for tests or
     replay from cached bytes. Existing rows are looked up by
     ``(source_id, canonical_url)`` so re-ingesting a feed is idempotent.
+    Entries published more than ``max_entry_age`` before ``now`` are skipped
+    (pass ``None`` to keep everything).
 
     A successful call updates the health counters on the source row via
     :mod:`signalweek.ingest.health`, so the periodic prune step can spot
@@ -165,11 +172,14 @@ def ingest_source(
     stamp = now or datetime.now(UTC)
 
     existing = _existing_canonical_urls(connection, source_id)
+    cutoff = stamp - max_entry_age if max_entry_age is not None else None
 
     inserted = 0
     skipped = 0
     for entry in entries:
-        if entry.canonical_url in existing:
+        if entry.canonical_url in existing or (
+            cutoff is not None and entry.published_at is not None and entry.published_at < cutoff
+        ):
             skipped += 1
             continue
         connection.execute(

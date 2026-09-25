@@ -31,7 +31,8 @@ from signalweek.sources import raw_items_table, sources_metadata, sources_table
 
 FIXTURES = Path(__file__).parent / "fixtures" / "feeds"
 
-FIXED_NOW = datetime(2026, 7, 27, 12, 0, tzinfo=UTC)
+# Within DEFAULT_MAX_ENTRY_AGE of every fixture entry date (2026-07-18..21).
+FIXED_NOW = datetime(2026, 7, 22, 12, 0, tzinfo=UTC)
 
 
 def _fixture(name: str) -> bytes:
@@ -423,3 +424,33 @@ def test_ingest_all_active_with_no_active_rows_returns_empty_run(curated_engine:
     assert run.per_source == []
     assert run.total_inserted == 0
     assert run.errors == []
+
+
+def test_ingest_source_skips_entries_older_than_max_age(curated_engine: Engine) -> None:
+    """A newly added feed must not backfill its archive as this week's news."""
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(conn, url="https://blog.example.com/feed")
+        # 2026-07-20 09:00 is > 7 days before; 2026-07-21 12:30 is within.
+        late = datetime(2026, 7, 28, 10, 0, tzinfo=UTC)
+        result = ingest_source(
+            conn,
+            source_id=source_id,
+            url="https://blog.example.com/feed",
+            content=_fixture("example_rss.xml"),
+            now=late,
+        )
+        rows = _stored_rows(conn, source_id)
+
+    assert (result.inserted, result.skipped) == (1, 1)
+    assert [r["canonical_url"] for r in rows] == ["https://blog.example.com/posts/metrics"]
+
+    with curated_engine.begin() as conn:
+        everything = ingest_source(
+            conn,
+            source_id=source_id,
+            url="https://blog.example.com/feed",
+            content=_fixture("example_rss.xml"),
+            now=late,
+            max_entry_age=None,
+        )
+    assert everything.inserted == 1
