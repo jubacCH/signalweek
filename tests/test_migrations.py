@@ -122,6 +122,8 @@ def test_curated_tables_have_expected_columns(tmp_path: Path) -> None:
         "fetched_at",
         "first_seen_at",
         "published_at",
+        "cluster_id",
+        "title_embedding",
     }
     assert columns["clusters"] == {
         "id",
@@ -381,11 +383,25 @@ def test_downgrade_one_drops_category_locked(tmp_path: Path) -> None:
     assert "category_locked" not in columns
 
 
-def test_downgrade_one_drops_item_byline_columns(tmp_path: Path) -> None:
+def test_downgrade_one_drops_cluster_membership_columns(tmp_path: Path) -> None:
     db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
     cfg = _alembic_config(db_url)
     command.upgrade(cfg, "head")
     command.downgrade(cfg, "-1")
+    engine = create_engine(db_url)
+    try:
+        raw_items = {c["name"] for c in inspect(engine).get_columns("raw_items")}
+    finally:
+        engine.dispose()
+    assert not {"cluster_id", "title_embedding"} & raw_items
+    assert "published_at" in raw_items
+
+
+def test_downgrade_drops_item_byline_columns(tmp_path: Path) -> None:
+    db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
+    cfg = _alembic_config(db_url)
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "0007_source_category_lock")
     engine = create_engine(db_url)
     try:
         inspector = inspect(engine)

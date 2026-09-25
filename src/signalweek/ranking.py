@@ -441,10 +441,9 @@ def rank_clusters_from_db(
     ``assignments`` maps each ``raw_items.id`` to its ``clusters.id`` — the
     exact structure returned by
     :func:`signalweek.ingest.cluster.cluster_raw_items`. When omitted, cluster
-    membership is inferred by matching each raw_item's ``canonical_url``
-    against the canonical form of a cluster's ``primary_url``; this covers the
-    common case but misses raw_items that joined a cluster via the fuzzy-title
-    fallback. Prefer passing ``assignments`` explicitly when they're available.
+    membership is each raw_item's stored ``cluster_id``. Raw_items that are not
+    clustered yet are matched by their ``canonical_url`` against the canonical
+    form of a cluster's ``primary_url``.
     """
     connection = _as_connection(bind)
 
@@ -497,6 +496,7 @@ def rank_clusters_from_db(
         rows = connection.execute(
             select(
                 raw_items_table.c.canonical_url,
+                raw_items_table.c.cluster_id,
                 sources_table.c.url,
                 raw_items_table.c.first_seen_at,
             ).select_from(
@@ -507,8 +507,12 @@ def rank_clusters_from_db(
             )
         ).all()
         for row in rows:
-            cid = canon_to_cluster.get(row.canonical_url)
-            if cid is None:
+            cid = (
+                int(row.cluster_id)
+                if row.cluster_id is not None
+                else canon_to_cluster.get(row.canonical_url)
+            )
+            if cid not in clusters_by_id:
                 continue
             sources_by_cluster[cid].append(
                 ClusterSource(
