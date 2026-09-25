@@ -125,7 +125,7 @@ def create_app(
             request,
             "landing.html.j2",
             {
-                "title": PRODUCT_NAME,
+                "title": None,
                 "product_name": PRODUCT_NAME,
                 "product_tagline": PRODUCT_TAGLINE,
                 "latest_issue": latest,
