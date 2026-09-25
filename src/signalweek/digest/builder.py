@@ -248,13 +248,10 @@ def _ensure_no_existing_issue(connection: Connection, week_of: date) -> None:
 def _find_recent_cluster_ids(connection: Connection, *, cutoff: datetime) -> set[int]:
     """Return every cluster with at least one raw_item first-seen after ``cutoff``.
 
-    Membership is inferred by matching ``raw_items.canonical_url`` against the
-    canonical form of each cluster's ``primary_url``. Clusters that formed via
-    the fuzzy-title fallback in :mod:`signalweek.ingest.cluster` are not
-    guaranteed to share a canonical URL with their raw_items, but this build
-    stage does not have access to the run's ``assignments`` map — the mapping
-    lives only in memory during clustering. Callers who need perfect fidelity
-    should run the build immediately after clustering.
+    Membership is ``raw_items.cluster_id``, which the clustering pass in
+    :mod:`signalweek.ingest.cluster` sets. A raw_item that has not been
+    clustered yet falls back to matching its ``canonical_url`` against the
+    canonical form of each cluster's ``primary_url``.
     """
     canon_by_cluster = {
         canonicalize_url(row.primary_url): int(row.id)
@@ -265,13 +262,26 @@ def _find_recent_cluster_ids(connection: Connection, *, cutoff: datetime) -> set
     if not canon_by_cluster:
         return set()
 
-    recent_canonicals = {
-        row.canonical_url
-        for row in connection.execute(
-            select(raw_items_table.c.canonical_url).where(raw_items_table.c.first_seen_at >= cutoff)
-        ).all()
-    }
-    return {cid for canon, cid in canon_by_cluster.items() if canon in recent_canonicals}
+    found: set[int] = set()
+    for row in connection.execute(
+        select(raw_items_table.c.canonical_url, raw_items_table.c.cluster_id).where(
+            raw_items_table.c.first_seen_at >= cutoff
+        )
+    ).all():
+        cid = _member_cluster(row.cluster_id, row.canonical_url, canon_by_cluster)
+        if cid is not None:
+            found.add(cid)
+    return found
+
+
+def _member_cluster(
+    cluster_id: int | None, canonical_url: str, canon_to_cluster: dict[str, int]
+) -> int | None:
+    """Cluster a raw_item belongs to: its stored ``cluster_id``, else the
+    cluster whose primary URL shares its canonical URL."""
+    if cluster_id is not None:
+        return int(cluster_id)
+    return canon_to_cluster.get(canonical_url)
 
 
 def _recent_published_primary_urls(connection: Connection, *, window: int) -> set[str]:
@@ -325,21 +335,16 @@ def _load_cluster_sources(
     :class:`ClusterSource` for ranking."""
     if not cluster_ids:
         return {}
-    # Precompute the mapping from canonical_url → cluster_id so we can group
-    # raw_items to clusters in a single scan.
-    rows = connection.execute(
-        select(clusters_table.c.id, clusters_table.c.primary_url).where(
-            clusters_table.c.id.in_(cluster_ids)
-        )
-    ).all()
+    # Canonical-URL fallback for raw_items that are not clustered yet.
     canon_to_cluster: dict[str, int] = {}
-    for row in rows:
+    for row in connection.execute(select(clusters_table.c.id, clusters_table.c.primary_url)).all():
         canon_to_cluster.setdefault(canonicalize_url(row.primary_url), int(row.id))
 
     grouped: dict[int, list[ClusterSource]] = {cid: [] for cid in cluster_ids}
     raw_rows = connection.execute(
         select(
             raw_items_table.c.canonical_url,
+            raw_items_table.c.cluster_id,
             raw_items_table.c.first_seen_at,
             sources_table.c.url,
         ).select_from(
@@ -347,10 +352,10 @@ def _load_cluster_sources(
         )
     ).all()
     for row in raw_rows:
-        cid = canon_to_cluster.get(row.canonical_url)
-        if cid is None:
+        cid = _member_cluster(row.cluster_id, row.canonical_url, canon_to_cluster)
+        if cid not in grouped:
             continue
-        grouped.setdefault(cid, []).append(
+        grouped[cid].append(
             ClusterSource(
                 source_url=row.url,
                 first_seen_at=_ensure_aware(row.first_seen_at),

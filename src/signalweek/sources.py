@@ -33,6 +33,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     MetaData,
     String,
     Table,
@@ -194,12 +195,24 @@ raw_items_table = Table(
     Column("first_seen_at", DateTime(timezone=True), nullable=False, index=True),
     # The feed entry's own ``published``/``updated`` stamp; NULL when undated.
     Column("published_at", DateTime(timezone=True), nullable=True),
+    # Set by the clustering pass; NULL until the item has been clustered.
+    Column(
+        "cluster_id",
+        Integer,
+        ForeignKey("clusters.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    ),
+    # float32 sentence embedding of ``title`` (see signalweek.ingest.embed),
+    # computed once so later ticks never re-embed old headlines.
+    Column("title_embedding", LargeBinary, nullable=True),
     UniqueConstraint("source_id", "canonical_url", name="uq_raw_items_source_canonical"),
 )
 
 # Dedup groups of raw_items that all cover the same story. The clustering pass
 # in :mod:`signalweek.ingest.cluster` upserts rows here as it groups incoming
-# raw_items — ``primary_url`` and ``canonical_headline`` come from the earliest
+# raw_items (membership lives in ``raw_items.cluster_id``). ``primary_url`` and
+# ``canonical_headline`` come from the earliest
 # (by ``first_seen_at``) raw_item in the group.
 # Mirrors the ``clusters`` table created by migration 0003.
 clusters_table = Table(

@@ -19,6 +19,9 @@ dependencies = [
     "jinja2>=3.1",
     "pyyaml>=6.0",
     "uvicorn[standard]>=0.29",
+    "numpy>=1.26",
+    "onnxruntime>=1.17",
+    "tokenizers>=0.15",
 ]
 
 [project.optional-dependencies]
@@ -54,3 +57,6 @@ minversion = "8.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "real_embedder: uses the real local embedding model (skipped when it is not installed)",
+]
