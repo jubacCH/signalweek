@@ -167,6 +167,11 @@ def ingest_source(
 
     raw = content if content is not None else fetch_feed(url, client=client)
     entries = parse_feed(raw)
+    if not entries and not feedparser.parse(raw).version:
+        # A 200 that is not RSS/Atom (typically an HTML page after a site
+        # redesign) is a broken feed, not a quiet one — count it as a failure
+        # so the health prune can retire it.
+        raise FetchError(f"{url!r} did not return an RSS/Atom feed")
 
     connection = _as_connection(bind)
     stamp = now or datetime.now(UTC)
