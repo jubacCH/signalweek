@@ -35,7 +35,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
 from signalweek.ingest.canonical import canonicalize_url
-from signalweek.ingest.classify import CATEGORIES, classify_clusters
+from signalweek.ingest.classify import CATEGORIES, classify_clusters, is_research_only_url
 from signalweek.ranking import (
     DEFAULT_WEIGHTS,
     ClusterInput,
@@ -404,6 +404,9 @@ def _insert_items(
         primary_url = ranked.primary_url
         summary = _build_summary(headline, primary_bodies.get(cid))
         extras = _extra_source_urls(sources_by_cluster.get(cid, ()), primary_url)
+        if ranked.category != "research":
+            # arXiv links belong in Research only, citations included.
+            extras = [url for url in extras if not is_research_only_url(url)]
         connection.execute(
             items_table.insert().values(
                 issue_id=issue_id,

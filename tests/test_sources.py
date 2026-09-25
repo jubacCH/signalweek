@@ -16,6 +16,7 @@ from signalweek.sources import (
     SOURCE_KINDS,
     SourceRegistryError,
     SourceSpec,
+    is_category_locked,
     load_sources_yaml,
     sources_metadata,
     sources_table,
@@ -72,11 +73,11 @@ class TestCheckedInRegistry:
         urls = {spec.url for spec in load_sources_yaml()}
         for needle in (
             "openai.com",
-            "anthropic.com",
+            "anthropic",
             "deepmind.google",
-            "ai.meta.com",
+            "engineering.fb.com/category/ai-research",
             "mistral.ai",
-            "x.ai",
+            "nvidia.com",
         ):
             assert any(needle in u for u in urls), f"no source URL contains {needle!r}"
 
@@ -89,7 +90,21 @@ class TestCheckedInRegistry:
         urls = {spec.url for spec in load_sources_yaml()}
         assert any("ftc.gov" in u for u in urls), "FTC feed missing"
         assert any("ec.europa.eu" in u for u in urls), "EU digital-strategy feed missing"
-        assert any("whitehouse.gov" in u for u in urls), "White House OSTP feed missing"
+        assert any("federalregister.gov" in u for u in urls), "Federal Register feed missing"
+
+    def test_includes_court_docket_and_github_trending(self) -> None:
+        """Spec §4 names PACER dockets and GitHub trending as source families."""
+        urls = {spec.url for spec in load_sources_yaml()}
+        assert any("courtlistener.com" in u and "type=r" in u for u in urls)
+        assert any("GitHubTrendingRSS" in u for u in urls)
+
+    def test_single_category_feeds_are_locked(self) -> None:
+        specs = load_sources_yaml()
+        locked = {s.url for s in specs if is_category_locked(s.kind, s.category_locked)}
+        assert all(s.url in locked for s in specs if "arxiv.org" in s.url)
+        assert any("courtlistener.com" in u for u in locked)
+        # Broad outlets must stay keyword-driven.
+        assert not any("techcrunch.com" in u or "theverge.com" in u for u in locked)
 
     def test_urls_are_unique(self) -> None:
         urls = [spec.url for spec in load_sources_yaml()]
@@ -272,3 +287,66 @@ class TestUpsert:
         assert result.inserted == expected
         assert result.updated == 0
         assert len(rows) == expected
+
+
+class TestCategoryLock:
+    def test_yaml_flag_is_parsed(self, tmp_path: Path) -> None:
+        path = tmp_path / "sources.yaml"
+        path.write_text(
+            "sources:\n"
+            "  - url: https://dockets.example/feed\n"
+            "    kind: atom\n"
+            "    category_hint: lawsuits_policy\n"
+            "    category_locked: true\n"
+        )
+        (spec,) = load_sources_yaml(path)
+        assert spec.category_locked is True
+
+    def test_non_boolean_flag_is_rejected(self, tmp_path: Path) -> None:
+        path = tmp_path / "sources.yaml"
+        path.write_text(
+            "sources:\n"
+            "  - url: https://dockets.example/feed\n"
+            "    kind: atom\n"
+            "    category_hint: lawsuits_policy\n"
+            "    category_locked: sometimes\n"
+        )
+        with pytest.raises(SourceRegistryError):
+            load_sources_yaml(path)
+
+    def test_upsert_writes_lock_and_always_locks_arxiv(self, sources_engine: Engine) -> None:
+        specs = [
+            SourceSpec(
+                url="https://arxiv.org/rss/cs.AI", kind="arxiv_rss", category_hint="research"
+            ),
+            SourceSpec(
+                url="https://dockets.example/feed",
+                kind="atom",
+                category_hint="lawsuits_policy",
+                category_locked=True,
+            ),
+            SourceSpec(url="https://press.example/feed", kind="rss", category_hint="funding"),
+        ]
+        with sources_engine.begin() as conn:
+            upsert_sources(conn, specs)
+            rows = dict(
+                conn.execute(select(sources_table.c.url, sources_table.c.category_locked)).all()
+            )
+        assert rows == {
+            "https://arxiv.org/rss/cs.AI": True,
+            "https://dockets.example/feed": True,
+            "https://press.example/feed": False,
+        }
+
+    def test_upsert_updates_lock_on_existing_row(self, sources_engine: Engine) -> None:
+        spec = SourceSpec(
+            url="https://dockets.example/feed", kind="atom", category_hint="lawsuits_policy"
+        )
+        with sources_engine.begin() as conn:
+            upsert_sources(conn, [spec])
+            result = upsert_sources(
+                conn, [SourceSpec(**{**spec.__dict__, "category_locked": True})]
+            )
+            locked = conn.execute(select(sources_table.c.category_locked)).scalar_one()
+        assert result.updated == 1
+        assert locked is True
