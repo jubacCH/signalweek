@@ -17,7 +17,10 @@ Archive
 {% for issue in issues %}
 <li class="issues-index__item">
 <a class="issues-index__link" href="/issues/{{ issue.week_of.isoformat() }}">
+<span class="issues-index__main">
 <span class="issues-index__title">Week of {{ issue.week_of.strftime('%B %d, %Y') }}</span>
+{% if issue.blurb %}<span class="issues-index__blurb">{{ issue.blurb }}</span>{% endif %}
+</span>
 <span class="issues-index__meta">
 {% if issue.published_at %}
 <time datetime="{{ issue.published_at.isoformat() }}">Published {{ issue.published_at.strftime('%B %d, %Y') }}</time>
