@@ -86,7 +86,7 @@ sources_table = Table(
     Column("kind", String(32), nullable=False),
     Column("category_hint", String(64), nullable=True),
     # Publication name shown on each item's byline (``sources.yaml`` ``name``).
-    # NULL for discovered sources; readers fall back to the feed host.
+    # NULL when unset; readers fall back to the feed host.
     Column("name", String(255), nullable=True),
     # When set, the classifier uses ``category_hint`` outright instead of
     # letting headline keywords override it — for clearly single-category
@@ -99,12 +99,6 @@ sources_table = Table(
         server_default="0",
     ),
     Column("active", Boolean, nullable=False, default=True, server_default="1"),
-    # Discovery provenance for sources auto-promoted from the citation
-    # stream — see :mod:`signalweek.ingest.discover`. Static YAML-seeded
-    # sources leave these NULL/False.
-    Column("discovered", Boolean, nullable=False, default=False, server_default="0"),
-    Column("discovered_first_seen_week", Date, nullable=True),
-    Column("discovered_cite_count", Integer, nullable=True),
     # Health counters maintained by the ingest layer and consumed by
     # :mod:`signalweek.ingest.health` to prune dead/silent sources.
     Column(
@@ -143,30 +137,6 @@ source_health_events_table = Table(
     CheckConstraint(
         "action IN ('activated', 'deactivated')",
         name="ck_source_health_events_action",
-    ),
-)
-
-# Running tally of every domain the pipeline has seen cited as a primary or
-# extra source URL on an item. :mod:`signalweek.ingest.discover` rebuilds the
-# counts from the current ``items`` table on every run and promotes rows that
-# clear the configured threshold into ``sources``. Mirrors the
-# ``source_candidates`` table created by migration 0004.
-source_candidates_table = Table(
-    "source_candidates",
-    sources_metadata,
-    Column("id", Integer, primary_key=True),
-    Column("domain", String(255), nullable=False, unique=True, index=True),
-    Column("first_seen_week", Date, nullable=False),
-    Column("last_seen_week", Date, nullable=False),
-    Column("cite_count", Integer, nullable=False, server_default="0"),
-    Column("distinct_weeks_count", Integer, nullable=False, server_default="0"),
-    Column("promoted", Boolean, nullable=False, default=False, server_default="0", index=True),
-    Column("promoted_at", DateTime(timezone=True), nullable=True),
-    Column(
-        "promoted_source_id",
-        Integer,
-        ForeignKey("sources.id", ondelete="SET NULL"),
-        nullable=True,
     ),
 )
 

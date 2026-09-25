@@ -23,11 +23,10 @@ src/signalweek/ingest/__init__.py
 src/signalweek/ingest/canonical.py
 src/signalweek/ingest/classify.py
 src/signalweek/ingest/cluster.py
-src/signalweek/ingest/discover.py
+src/signalweek/ingest/embed.py
 src/signalweek/ingest/feeds.py
 src/signalweek/ingest/health.py
 src/signalweek/web/__init__.py
-src/signalweek/web/admin.py
 src/signalweek/web/app.py
 src/signalweek/web/archive.py
 src/signalweek/web/landing.py
@@ -41,7 +40,6 @@ src/signalweek/web/templates/issues_index.html.j2
 src/signalweek/web/templates/landing.html.j2
 src/signalweek/web/templates/not_found.html.j2
 tests/test_acceptance.py
-tests/test_admin_api.py
 tests/test_cli.py
 tests/test_deploy.py
 tests/test_digest_builder.py
@@ -49,7 +47,7 @@ tests/test_digest_verify.py
 tests/test_ingest_canonical.py
 tests/test_ingest_classify.py
 tests/test_ingest_cluster.py
-tests/test_ingest_discover.py
+tests/test_ingest_cluster_embedding.py
 tests/test_ingest_feeds.py
 tests/test_ingest_health.py
 tests/test_migrations.py

@@ -545,7 +545,7 @@ def test_arxiv_item_full_of_model_keywords_is_classified_as_research(
 def test_arxiv_primary_url_is_research_even_from_an_unhinted_source(
     curated_engine: Engine,
 ) -> None:
-    """A discovered/generic feed linking an arXiv paper still lands in Research."""
+    """A generic feed linking an arXiv paper still lands in Research."""
     with curated_engine.begin() as conn:
         source_id = _insert_source(
             conn, url="https://aggregator.example.com/feed", category_hint=None
