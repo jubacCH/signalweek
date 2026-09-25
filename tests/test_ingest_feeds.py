@@ -454,3 +454,37 @@ def test_ingest_source_skips_entries_older_than_max_age(curated_engine: Engine) 
             max_entry_age=None,
         )
     assert everything.inserted == 1
+
+
+def test_ingest_all_active_counts_an_html_page_as_a_fetch_failure(
+    curated_engine: Engine,
+) -> None:
+    """A feed URL that now serves HTML must not look healthy."""
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(conn, url="https://moved.example.com/rss.xml")
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"<!DOCTYPE html><html><body>News</body></html>")
+
+    with curated_engine.begin() as conn, _mock_client(handler) as client:
+        run = ingest_all_active(conn, client=client, now=FIXED_NOW)
+        row = conn.execute(
+            select(
+                sources_table.c.consecutive_fetch_failures, sources_table.c.last_fetch_ok_at
+            ).where(sources_table.c.id == source_id)
+        ).one()
+
+    assert [r.source_id for r in run.errors] == [source_id]
+    assert "did not return an RSS/Atom feed" in (run.errors[0].error or "")
+    assert row.consecutive_fetch_failures == 1
+    assert row.last_fetch_ok_at is None
+
+
+def test_an_empty_but_valid_feed_is_still_a_success(curated_engine: Engine) -> None:
+    empty = b'<?xml version="1.0"?><rss version="2.0"><channel><title>t</title></channel></rss>'
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(conn, url="https://quiet.example.com/rss.xml")
+        result = ingest_source(
+            conn, source_id=source_id, url="https://quiet.example.com/rss.xml", content=empty
+        )
+    assert (result.inserted, result.error) == (0, None)

@@ -78,18 +78,19 @@ sources:
     url: https://research.google/blog/rss/
     kind: rss
     category_hint: research
-  - name: Stanford HAI
-    url: https://hai.stanford.edu/news/rss.xml
+  # Stanford HAI dropped its feed (the URL now serves an HTML page).
+  - name: Microsoft Research blog
+    url: https://www.microsoft.com/en-us/research/feed/
     kind: rss
     category_hint: research
 
   # ---- Policy / regulators (lawsuits_policy) -----------------------------
   - name: FTC press releases
-    url: https://www.ftc.gov/news-events/news/press-releases/rss
+    url: https://www.ftc.gov/feeds/press-release.xml
     kind: rss
     category_hint: lawsuits_policy
   - name: European Commission — digital strategy
-    url: https://digital-strategy.ec.europa.eu/en/news/rss.xml
+    url: https://digital-strategy.ec.europa.eu/en/rss.xml
     kind: rss
     category_hint: lawsuits_policy
   - name: Federal Register — AI documents
