@@ -22,8 +22,10 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.engine import Engine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from signalweek.db.session import get_engine
+from signalweek.db.session import create_session_factory, get_engine
 from signalweek.ingest.classify import CATEGORIES, CATEGORY_LABELS
+from signalweek.scheduler import create_scheduler, schedule_startup_recovery
+from signalweek.sources import seed_sources_if_empty
 from signalweek.web.admin import register_admin_router, resolve_admin_token
 from signalweek.web.archive import (
     load_published_issue_by_week,
@@ -31,17 +33,11 @@ from signalweek.web.archive import (
 )
 from signalweek.web.landing import load_latest_published_issue
 from signalweek.web.renderers import render_issue
-from signalweek.db.session import create_session_factory
-from signalweek.scheduler import create_scheduler
-from signalweek.sources import seed_sources_if_empty
 
 _logger = logging.getLogger(__name__)
 
 PRODUCT_NAME = "Signalweek"
-PRODUCT_TAGLINE = (
-    "A curated weekly digest of the AI industry — "
-    "every item citing a primary source."
-)
+PRODUCT_TAGLINE = "A curated weekly digest of the AI industry — every item citing a primary source."
 
 
 def create_app(
@@ -76,7 +72,11 @@ def create_app(
             except Exception:
                 _logger.exception("startup source seeding failed")
             try:
-                sched = create_scheduler(create_session_factory(eng), scheduler=scheduler)
+                factory = create_session_factory(eng)
+                sched = create_scheduler(factory, scheduler=scheduler)
+                # Runs once in the scheduler's worker pool so a catch-up
+                # build never delays /health.
+                schedule_startup_recovery(sched, factory)
                 sched.start()
                 app.state.scheduler = sched
                 _logger.info("scheduler started: jobs=%s", [j.id for j in sched.get_jobs()])
