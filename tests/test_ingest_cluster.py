@@ -165,7 +165,7 @@ def test_two_raw_items_sharing_canonical_url_collapse_into_one_cluster(
     assert clusters[0]["canonical_headline"] == "Nvidia announces H200"
 
 
-def test_domain_plus_fuzzy_title_match_collapses_near_duplicate_headlines(
+def test_similar_headlines_collapse_into_one_cluster(
     curated_engine: Engine,
 ) -> None:
     with curated_engine.begin() as conn:
@@ -201,12 +201,15 @@ def test_domain_plus_fuzzy_title_match_collapses_near_duplicate_headlines(
     assert clusters[0]["category"] == "funding"
 
 
-def test_same_title_but_different_domains_are_kept_apart(curated_engine: Engine) -> None:
-    """Fuzzy matching is scoped to a single hostname — no cross-domain merges."""
+def test_same_title_on_different_domains_collapses_into_one_cluster(
+    curated_engine: Engine,
+) -> None:
+    """Headline similarity is not scoped to a hostname: two outlets covering
+    the same story under different URLs become one cluster (criterion 10)."""
     with curated_engine.begin() as conn:
         source_a = _insert_source(conn, url="https://a.example.com/feed")
         source_b = _insert_source(conn, url="https://b.example.com/feed")
-        _insert_raw_item(
+        first = _insert_raw_item(
             conn,
             source_id=source_a,
             url="https://a.example.com/posts/1",
@@ -214,7 +217,7 @@ def test_same_title_but_different_domains_are_kept_apart(curated_engine: Engine)
             title="The state of open source models",
             first_seen_at=BASE_TIME,
         )
-        _insert_raw_item(
+        second = _insert_raw_item(
             conn,
             source_id=source_b,
             url="https://b.example.com/posts/9",
@@ -227,13 +230,11 @@ def test_same_title_but_different_domains_are_kept_apart(curated_engine: Engine)
         result = cluster_raw_items(conn)
         clusters = _all_clusters(conn)
 
-    assert result.created == 2
-    assert result.matched == 0
-    assert len(clusters) == 2
-    assert {c["primary_url"] for c in clusters} == {
-        "https://a.example.com/posts/1",
-        "https://b.example.com/posts/9",
-    }
+    assert result.created == 1
+    assert result.matched == 1
+    assert result.semantic_matches == 1
+    assert result.assignments[first] == result.assignments[second]
+    assert [c["primary_url"] for c in clusters] == ["https://a.example.com/posts/1"]
 
 
 def test_unrelated_headlines_on_same_domain_are_separate_clusters(
@@ -329,10 +330,11 @@ def test_second_run_is_idempotent(curated_engine: Engine) -> None:
 
     assert first.created == 2
     assert first.matched == 0
-    # Second pass finds both existing clusters — nothing new, nothing rewritten.
+    assert first.embedded == 2
+    # Both raw_items are already clustered, so the second pass does nothing.
+    assert second.total == 0
     assert second.created == 0
-    assert second.matched == 2
-    assert second.anchor_updates == 0
+    assert second.embedded == 0
     assert len(clusters) == 2
 
 
@@ -369,7 +371,8 @@ def test_new_raw_item_joins_existing_cluster_via_exact_canonical_url(
         clusters = _all_clusters(conn)
 
     assert result.created == 0
-    assert result.matched == 2
+    assert result.matched == 1
+    assert result.semantic_matches == 0
     assert len(clusters) == 1
     # The original anchor is preserved because the mirror is later.
     assert clusters[0]["primary_url"] == "https://blog.example.com/posts/z"
@@ -410,7 +413,7 @@ def test_later_run_rewrites_anchor_when_an_earlier_raw_item_arrives(
         clusters_after = _all_clusters(conn)
 
     assert result.created == 0
-    assert result.matched == 2
+    assert result.matched == 1
     assert result.anchor_updates == 1
     assert len(clusters_after) == 1
     # Anchor moved to the earlier raw_item.
@@ -450,3 +453,144 @@ def test_category_falls_back_when_source_has_no_hint(curated_engine: Engine) -> 
         clusters = _all_clusters(conn)
 
     assert clusters[0]["category"] == "industry_moves"
+
+
+class _CountingEmbedder:
+    def __init__(self) -> None:
+        from tests.conftest import BagOfWordsEmbedder
+
+        self._inner = BagOfWordsEmbedder()
+        self.calls: list[list[str]] = []
+
+    def embed(self, texts: list[str]):
+        self.calls.append(list(texts))
+        return self._inner.embed(texts)
+
+
+def test_membership_and_embeddings_are_stored_and_only_new_headlines_are_embedded(
+    curated_engine: Engine,
+) -> None:
+    embedder = _CountingEmbedder()
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(conn, url="https://blog.example.com/feed")
+        old = _insert_raw_item(
+            conn,
+            source_id=source_id,
+            url="https://blog.example.com/a",
+            canonical_url="https://blog.example.com/a",
+            title="Mistral ships a new coding model",
+            first_seen_at=BASE_TIME,
+        )
+    with curated_engine.begin() as conn:
+        cluster_raw_items(conn, embedder=embedder)
+
+    with curated_engine.begin() as conn:
+        new = _insert_raw_item(
+            conn,
+            source_id=source_id,
+            url="https://blog.example.com/b",
+            canonical_url="https://blog.example.com/b",
+            title="Mistral ships a new coding model today",
+            first_seen_at=BASE_TIME + timedelta(hours=1),
+        )
+    with curated_engine.begin() as conn:
+        result = cluster_raw_items(conn, embedder=embedder)
+        rows = conn.execute(
+            select(
+                raw_items_table.c.id,
+                raw_items_table.c.cluster_id,
+                raw_items_table.c.title_embedding,
+            ).order_by(raw_items_table.c.id)
+        ).all()
+
+    assert embedder.calls == [
+        ["Mistral ships a new coding model"],
+        ["Mistral ships a new coding model today"],
+    ]
+    assert result.embedded == 1
+    assert result.semantic_matches == 1
+    assert [r.id for r in rows] == [old, new]
+    assert rows[0].cluster_id == rows[1].cluster_id is not None
+    assert all(len(r.title_embedding) == 384 * 4 for r in rows)
+
+
+def test_similar_headlines_outside_the_window_stay_apart(curated_engine: Engine) -> None:
+    from signalweek.ingest.cluster import DEDUP_WINDOW
+
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(conn, url="https://blog.example.com/feed")
+        _insert_raw_item(
+            conn,
+            source_id=source_id,
+            url="https://blog.example.com/a",
+            canonical_url="https://blog.example.com/a",
+            title="Weekly roundup of AI news",
+            first_seen_at=BASE_TIME,
+        )
+        _insert_raw_item(
+            conn,
+            source_id=source_id,
+            url="https://blog.example.com/b",
+            canonical_url="https://blog.example.com/b",
+            title="Weekly roundup of AI news",
+            first_seen_at=BASE_TIME + DEDUP_WINDOW + timedelta(hours=1),
+        )
+    with curated_engine.begin() as conn:
+        result = cluster_raw_items(conn)
+
+    assert result.created == 2
+
+
+def test_headlines_without_words_never_merge_on_similarity(curated_engine: Engine) -> None:
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(conn, url="https://blog.example.com/feed")
+        for n in range(2):
+            _insert_raw_item(
+                conn,
+                source_id=source_id,
+                url=f"https://blog.example.com/{n}",
+                canonical_url=f"https://blog.example.com/{n}",
+                title="—",
+                first_seen_at=BASE_TIME + timedelta(minutes=n),
+            )
+    with curated_engine.begin() as conn:
+        result = cluster_raw_items(conn)
+
+    assert result.created == 2
+
+
+def test_ranking_counts_a_similarity_matched_item_as_a_cluster_source(
+    curated_engine: Engine,
+) -> None:
+    """The duplicate's source counts towards its cluster even though its URL
+    differs from the cluster's primary URL."""
+    from signalweek.ranking import rank_clusters_from_db
+
+    with curated_engine.begin() as conn:
+        source_a = _insert_source(conn, url="https://a.example.com/feed", category_hint="models")
+        source_b = _insert_source(conn, url="https://b.example.com/feed", category_hint="models")
+        _insert_raw_item(
+            conn,
+            source_id=source_a,
+            url="https://a.example.com/story",
+            canonical_url="https://a.example.com/story",
+            title="Anthropic releases a new Claude model",
+            first_seen_at=BASE_TIME,
+        )
+        _insert_raw_item(
+            conn,
+            source_id=source_b,
+            url="https://b.example.com/other-path",
+            canonical_url="https://b.example.com/other-path",
+            title="Anthropic releases a new Claude model",
+            first_seen_at=BASE_TIME + timedelta(hours=1),
+        )
+    with curated_engine.begin() as conn:
+        cluster_raw_items(conn)
+    with curated_engine.begin() as conn:
+        buckets = rank_clusters_from_db(conn, now=BASE_TIME + timedelta(hours=2))
+
+    ranked = [r for rs in buckets.values() for r in rs]
+    assert len(ranked) == 1
+    # Two distinct sources: 1 + log2(2).
+    assert ranked[0].multiplicity == 2.0
