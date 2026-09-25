@@ -68,7 +68,7 @@ def render_issue(
     env = _make_env()
     template = env.get_template("issue.html.j2")
     return template.render(
-        title=f"Week of {week_of.isoformat()}",
+        title=f"Week of {week_of.strftime('%B %d, %Y')}",
         week_of=week_of,
         status=status,
         published_at=published_at,
