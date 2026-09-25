@@ -81,6 +81,7 @@ def test_curated_tables_have_expected_columns(tmp_path: Path) -> None:
         "url",
         "kind",
         "category_hint",
+        "name",
         "category_locked",
         "active",
         "discovered",
@@ -120,6 +121,7 @@ def test_curated_tables_have_expected_columns(tmp_path: Path) -> None:
         "body",
         "fetched_at",
         "first_seen_at",
+        "published_at",
     }
     assert columns["clusters"] == {
         "id",
@@ -138,6 +140,8 @@ def test_curated_tables_have_expected_columns(tmp_path: Path) -> None:
         "summary",
         "primary_url",
         "extra_source_urls",
+        "source_name",
+        "source_published_at",
     }
 
 
@@ -367,7 +371,7 @@ def test_0007_locks_existing_arxiv_sources(tmp_path: Path) -> None:
 def test_downgrade_one_drops_category_locked(tmp_path: Path) -> None:
     db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
     cfg = _alembic_config(db_url)
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "0007_source_category_lock")
     command.downgrade(cfg, "-1")
     engine = create_engine(db_url)
     try:
@@ -375,6 +379,24 @@ def test_downgrade_one_drops_category_locked(tmp_path: Path) -> None:
     finally:
         engine.dispose()
     assert "category_locked" not in columns
+
+
+def test_downgrade_one_drops_item_byline_columns(tmp_path: Path) -> None:
+    db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
+    cfg = _alembic_config(db_url)
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "-1")
+    engine = create_engine(db_url)
+    try:
+        inspector = inspect(engine)
+        sources = {c["name"] for c in inspector.get_columns("sources")}
+        raw_items = {c["name"] for c in inspector.get_columns("raw_items")}
+        items = {c["name"] for c in inspector.get_columns("items")}
+    finally:
+        engine.dispose()
+    assert "name" not in sources
+    assert "published_at" not in raw_items
+    assert not {"source_name", "source_published_at"} & items
 
 
 def test_rebuilding_sources_does_not_cascade_delete_child_rows(tmp_path: Path) -> None:

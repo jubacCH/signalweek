@@ -619,6 +619,13 @@ article {
   color: var(--sw-accent-ink);
   border-bottom-color: var(--sw-highlight);
 }
+.issue__item-byline {
+  margin: .3rem 0 0; color: var(--sw-faint); font-size: .78rem;
+  font-family: var(--sw-mono); letter-spacing: .02em; font-variant-numeric: tabular-nums;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem;
+}
+.issue__item-source { color: var(--sw-muted); }
+.issue__item-sep { color: var(--sw-line); }
 .issue__item-summary {
   margin: .35rem 0 0; color: var(--sw-muted); font-size: .96rem; line-height: 1.55;
   max-width: 55ch;
@@ -698,6 +705,11 @@ article {
 .issues-index__title {
   font-family: var(--sw-serif); font-weight: 700; font-size: 1.15rem;
   letter-spacing: -.01em; color: var(--sw-ink);
+}
+.issues-index__main { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+.issues-index__blurb {
+  color: var(--sw-muted); font-size: .9rem; line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .issues-index__meta {
   color: var(--sw-faint); font-size: .82rem;

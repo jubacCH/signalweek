@@ -176,12 +176,24 @@ def ingest_source(
     connection = _as_connection(bind)
     stamp = now or datetime.now(UTC)
 
-    existing = _existing_canonical_urls(connection, source_id)
+    existing, undated = _existing_canonical_urls(connection, source_id)
     cutoff = stamp - max_entry_age if max_entry_age is not None else None
 
     inserted = 0
     skipped = 0
     for entry in entries:
+        if entry.canonical_url in undated and entry.published_at is not None:
+            # Rows ingested before raw_items.published_at existed pick up
+            # the entry date the next time the feed still lists them.
+            connection.execute(
+                raw_items_table.update()
+                .where(
+                    raw_items_table.c.source_id == source_id,
+                    raw_items_table.c.canonical_url == entry.canonical_url,
+                )
+                .values(published_at=entry.published_at)
+            )
+            undated.discard(entry.canonical_url)
         if entry.canonical_url in existing or (
             cutoff is not None and entry.published_at is not None and entry.published_at < cutoff
         ):
@@ -194,6 +206,7 @@ def ingest_source(
                 canonical_url=entry.canonical_url,
                 title=entry.title,
                 body=entry.body,
+                published_at=entry.published_at,
                 fetched_at=stamp,
                 first_seen_at=stamp,
             )
@@ -266,9 +279,15 @@ def ingest_all_active(
     return IngestRunResult(per_source=results)
 
 
-def _existing_canonical_urls(connection: Connection, source_id: int) -> set[str]:
-    stmt = select(raw_items_table.c.canonical_url).where(raw_items_table.c.source_id == source_id)
-    return set(connection.execute(stmt).scalars().all())
+def _existing_canonical_urls(connection: Connection, source_id: int) -> tuple[set[str], set[str]]:
+    """Return ``(all, undated)`` canonical URLs already stored for a source."""
+    stmt = select(raw_items_table.c.canonical_url, raw_items_table.c.published_at).where(
+        raw_items_table.c.source_id == source_id
+    )
+    rows = connection.execute(stmt).all()
+    return {r.canonical_url for r in rows}, {
+        r.canonical_url for r in rows if r.published_at is None
+    }
 
 
 def _as_connection(bind: Session | Connection) -> Connection:

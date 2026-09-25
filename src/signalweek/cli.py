@@ -42,7 +42,11 @@ from sqlalchemy import select
 from sqlalchemy.engine import Connection, Engine
 
 from signalweek.db.session import create_db_engine, get_database_url
-from signalweek.digest.builder import IssueAlreadyExistsError, build_issue
+from signalweek.digest.builder import (
+    IssueAlreadyExistsError,
+    build_issue,
+    refresh_item_render_fields,
+)
 from signalweek.digest.verify import verify_issue
 from signalweek.sources import (
     CATEGORY_HINTS,
@@ -216,6 +220,16 @@ def _register_issue(subparsers: argparse._SubParsersAction) -> None:
     )
     _add_issue_selector(publish)
     publish.set_defaults(_handler=_cmd_issue_publish)
+
+    refresh = issue_sub.add_parser(
+        "refresh-items",
+        help="Recompute what-happened text and source bylines on built items.",
+    )
+    refresh_sel = refresh.add_mutually_exclusive_group(required=True)
+    refresh_sel.add_argument("--week", type=_parse_iso_date, help="Monday of the ISO week.")
+    refresh_sel.add_argument("--issue-id", type=int, help="Numeric ``issues.id``.")
+    refresh_sel.add_argument("--all", action="store_true", help="Every issue.")
+    refresh.set_defaults(_handler=_cmd_issue_refresh_items)
 
     hold = issue_sub.add_parser(
         "hold",
@@ -462,6 +476,26 @@ def _cmd_issue_publish(
         f"published_at={now.isoformat()}",
         file=out,
     )
+    return EXIT_OK
+
+
+def _cmd_issue_refresh_items(
+    args: argparse.Namespace,
+    conn: Connection,
+    out: TextIO,
+    err: TextIO,
+    _now: datetime,
+) -> int:
+    issue_id: int | None = None
+    if not args.all:
+        issue = _resolve_issue(conn, args)
+        if issue is None:
+            _print_issue_not_found(args, err)
+            return EXIT_NOT_FOUND
+        issue_id = issue.id
+    count = refresh_item_render_fields(conn, issue_id=issue_id)
+    scope = "all issues" if issue_id is None else f"issue id={issue_id}"
+    print(f"refreshed {count} items ({scope})", file=out)
     return EXIT_OK
 
 
