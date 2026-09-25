@@ -33,14 +33,23 @@ from signalweek.scheduler import (
     WEEKLY_PIPELINE_HOUR,
     WEEKLY_PIPELINE_MINUTE,
     WEEKLY_PIPELINE_TIMEZONE,
+    catch_up_weekly,
     create_scheduler,
+    fail_interrupted_runs,
+    record_missed_runs,
     run_ingest,
+    run_ingest_job,
+    run_weekly_job,
     run_weekly_pipeline,
+    schedule_startup_recovery,
+    weekly_slot_due,
 )
 from signalweek.sources import (
+    alerts_table,
     clusters_table,
     issues_table,
     items_table,
+    pipeline_runs_table,
     raw_items_table,
     sources_metadata,
     sources_table,
@@ -343,7 +352,8 @@ class TestRunWeeklyPipeline:
         now = datetime(2026, 7, 27, 13, 0, tzinfo=UTC)  # Monday afternoon UTC
         result = run_weekly_pipeline(session_factory, now=now)
 
-        assert result.build.status == "published"
+        assert result.build.status == "draft"
+        assert result.status == "published"
         assert result.verify is not None
         assert verify_calls == [result.build.issue_id]
 
@@ -376,6 +386,7 @@ class TestRunWeeklyPipeline:
         result = run_weekly_pipeline(session_factory, now=now)
 
         assert result.build.status == "held"
+        assert result.status == "held"
         assert result.verify is None
         assert verify_calls == []
 
@@ -477,3 +488,259 @@ class TestSchedulerJobsRunEndToEnd:
         # Second tick would raise IssueAlreadyExistsError inside
         # run_weekly_pipeline, but the wrapping callable must swallow it.
         weekly_job.func()
+
+
+# ---------------------------------------------------------------------------
+# Reliability (AIC-11): ordering, alerts, pipeline_runs, catch-up
+# ---------------------------------------------------------------------------
+
+MONDAY_SLOT = datetime(2026, 7, 27, 13, 0, tzinfo=UTC)  # 09:00 EDT
+
+
+def _passing_verify(session, *, issue_id, **kwargs):
+    from signalweek.digest.verify import VerifyResult
+
+    return VerifyResult(issue_id=issue_id, checked=0, kept=0, dropped=0)
+
+
+def _rows(engine: Engine, table):
+    with engine.begin() as conn:
+        return conn.execute(table.select().order_by(table.c.id)).all()
+
+
+class TestReliabilityScheduling:
+    def test_weekly_job_has_generous_misfire_grace_and_coalesces(self) -> None:
+        sched = create_scheduler(scheduler=BackgroundScheduler(timezone=UTC))
+        job = sched.get_job(WEEKLY_JOB_ID)
+        assert job.misfire_grace_time >= 6 * 60 * 60
+        assert job.coalesce is True
+        ingest = sched.get_job(INGEST_JOB_ID)
+        assert ingest.misfire_grace_time > 1
+        assert ingest.coalesce is True
+
+    def test_startup_recovery_is_a_one_off_job(self) -> None:
+        sched = create_scheduler(scheduler=BackgroundScheduler(timezone=UTC))
+        schedule_startup_recovery(sched, lambda: None)
+        ids = {j.id for j in sched.get_jobs()}
+        assert "startup_recovery" in ids
+
+    @pytest.mark.parametrize(
+        ("now", "expected"),
+        [
+            # Monday 09:00 EDT exactly → that slot.
+            (datetime(2026, 7, 27, 13, 0, tzinfo=UTC), datetime(2026, 7, 27, 13, 0, tzinfo=UTC)),
+            # Monday 08:59 EDT → previous Monday.
+            (datetime(2026, 7, 27, 12, 59, tzinfo=UTC), datetime(2026, 7, 20, 13, 0, tzinfo=UTC)),
+            # Friday → that week's Monday.
+            (datetime(2026, 9, 25, 10, 0, tzinfo=UTC), datetime(2026, 9, 21, 13, 0, tzinfo=UTC)),
+            # Winter: 09:00 EST is 14:00 UTC.
+            (datetime(2026, 12, 7, 13, 30, tzinfo=UTC), datetime(2026, 11, 30, 14, 0, tzinfo=UTC)),
+        ],
+    )
+    def test_weekly_slot_due(self, now: datetime, expected: datetime) -> None:
+        assert weekly_slot_due(now) == expected
+
+
+class TestPublishOrdering:
+    def test_issue_is_draft_while_verify_runs(
+        self, curated_engine: Engine, session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with curated_engine.begin() as conn:
+            _seed_publishable_state(conn)
+        seen: list[str] = []
+
+        def spy_verify(session, *, issue_id, **kwargs):
+            seen.append(
+                session.execute(issues_table.select().where(issues_table.c.id == issue_id))
+                .one()
+                .status
+            )
+            return _passing_verify(session, issue_id=issue_id)
+
+        monkeypatch.setattr("signalweek.scheduler.verify_issue", spy_verify)
+        result = run_weekly_pipeline(session_factory, now=MONDAY_SLOT)
+        assert seen == ["draft"]
+        assert result.status == "published"
+
+    def test_verify_dropping_below_floor_holds_and_alerts(
+        self, curated_engine: Engine, session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dead links must never go public: if verify drops the issue below
+        10 items it is held, not published."""
+        with curated_engine.begin() as conn:
+            _seed_publishable_state(conn)
+
+        def dropping_verify(session, *, issue_id, **kwargs):
+            ids = [
+                r.id
+                for r in session.execute(
+                    items_table.select().where(items_table.c.issue_id == issue_id)
+                ).all()
+            ]
+            session.execute(items_table.delete().where(items_table.c.id.in_(ids[:3])))
+            return _passing_verify(session, issue_id=issue_id)
+
+        monkeypatch.setattr("signalweek.scheduler.verify_issue", dropping_verify)
+        result = run_weekly_pipeline(session_factory, now=MONDAY_SLOT)
+
+        assert result.status == "held"
+        assert result.item_count == result.build.total_items - 3
+        issue = _rows(curated_engine, issues_table)[0]
+        assert issue.status == "held"
+        assert issue.published_at is None
+        alerts = _rows(curated_engine, alerts_table)
+        assert [a.reason for a in alerts] == ["insufficient_items"]
+
+    def test_thin_week_records_insufficient_items_alert(self, curated_engine, session_factory):
+        result = run_weekly_pipeline(session_factory, now=MONDAY_SLOT)
+        assert result.status == "held"
+        alerts = _rows(curated_engine, alerts_table)
+        assert len(alerts) == 1
+        assert alerts[0].reason == "insufficient_items"
+        assert alerts[0].week_of == MONDAY_SLOT.date()
+        assert all(i.status != "published" for i in _rows(curated_engine, issues_table))
+
+
+class TestPipelineRuns:
+    def test_weekly_job_records_ok_run_with_timing(
+        self, curated_engine: Engine, session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with curated_engine.begin() as conn:
+            _seed_publishable_state(conn)
+        monkeypatch.setattr("signalweek.scheduler.verify_issue", _passing_verify)
+
+        result = run_weekly_job(session_factory, now=MONDAY_SLOT)
+
+        assert result is not None
+        (run,) = _rows(curated_engine, pipeline_runs_table)
+        assert run.job == WEEKLY_JOB_ID
+        assert run.status == "ok"
+        assert run.item_count == result.item_count
+        assert run.week_of == MONDAY_SLOT.date()
+        assert run.started_at is not None
+        assert run.finished_at is not None
+        assert run.finished_at >= run.started_at
+
+    def test_duplicate_week_records_skipped_run(
+        self, curated_engine: Engine, session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with curated_engine.begin() as conn:
+            _seed_publishable_state(conn)
+        monkeypatch.setattr("signalweek.scheduler.verify_issue", _passing_verify)
+        run_weekly_job(session_factory, now=MONDAY_SLOT)
+        assert run_weekly_job(session_factory, now=MONDAY_SLOT) is None
+        statuses = [r.status for r in _rows(curated_engine, pipeline_runs_table)]
+        assert statuses == ["ok", "skipped"]
+
+    def test_failure_records_failed_run_and_alert(
+        self, curated_engine: Engine, session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(*args, **kwargs):
+            raise RuntimeError("builder exploded")
+
+        monkeypatch.setattr("signalweek.scheduler.build_issue", boom)
+        assert run_weekly_job(session_factory, now=MONDAY_SLOT) is None  # does not raise
+
+        (run,) = _rows(curated_engine, pipeline_runs_table)
+        assert run.status == "failed"
+        assert "builder exploded" in run.detail
+        (alert,) = _rows(curated_engine, alerts_table)
+        assert alert.reason == "pipeline_failed"
+        assert alert.week_of == MONDAY_SLOT.date()
+
+    def test_ingest_job_records_run(self, curated_engine: Engine, session_factory) -> None:
+        run_ingest_job(session_factory)
+        runs = [r for r in _rows(curated_engine, pipeline_runs_table) if r.job == INGEST_JOB_ID]
+        assert len(runs) == 1
+        assert runs[0].status == "ok"
+        assert runs[0].item_count == 0
+
+    def test_interrupted_runs_are_failed_on_startup(
+        self, curated_engine: Engine, session_factory
+    ) -> None:
+        with curated_engine.begin() as conn:
+            conn.execute(
+                pipeline_runs_table.insert().values(
+                    job=WEEKLY_JOB_ID, started_at=MONDAY_SLOT, status="running"
+                )
+            )
+        assert fail_interrupted_runs(session_factory) == 1
+        (run,) = _rows(curated_engine, pipeline_runs_table)
+        assert run.status == "failed"
+        assert [a.reason for a in _rows(curated_engine, alerts_table)] == ["pipeline_failed"]
+
+
+class TestCatchUp:
+    def test_restart_after_monday_slot_builds_issue(
+        self, curated_engine: Engine, session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """QA scenario: the app was down across the Monday slot and boots on
+        Tuesday — the issue is built on boot and a pipeline_runs row lands."""
+        tuesday = MONDAY_SLOT + timedelta(days=1)
+        with curated_engine.begin() as conn:
+            _seed_publishable_state(conn, now=MONDAY_SLOT)
+        monkeypatch.setattr("signalweek.scheduler.verify_issue", _passing_verify)
+
+        result = catch_up_weekly(session_factory, now=tuesday)
+
+        assert result is not None
+        assert result.status == "published"
+        (issue,) = _rows(curated_engine, issues_table)
+        assert issue.week_of == MONDAY_SLOT.date()
+        (run,) = _rows(curated_engine, pipeline_runs_table)
+        assert (run.job, run.status, run.week_of) == (WEEKLY_JOB_ID, "ok", MONDAY_SLOT.date())
+
+    def test_no_catch_up_before_the_slot(self, curated_engine, session_factory) -> None:
+        early = MONDAY_SLOT - timedelta(hours=1)  # 08:00 EDT Monday
+        assert catch_up_weekly(session_factory, now=early) is None
+        assert _rows(curated_engine, issues_table) == []
+
+    def test_no_catch_up_when_issue_exists(
+        self, curated_engine: Engine, session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with curated_engine.begin() as conn:
+            _seed_publishable_state(conn)
+        monkeypatch.setattr("signalweek.scheduler.verify_issue", _passing_verify)
+        run_weekly_job(session_factory, now=MONDAY_SLOT)
+        assert catch_up_weekly(session_factory, now=MONDAY_SLOT + timedelta(hours=2)) is None
+        assert len(_rows(curated_engine, pipeline_runs_table)) == 1
+
+    def test_hourly_safety_net_does_not_retry_a_failed_week(
+        self, curated_engine: Engine, session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(*args, **kwargs):
+            raise RuntimeError("down")
+
+        monkeypatch.setattr("signalweek.scheduler.build_issue", boom)
+        run_weekly_job(session_factory, now=MONDAY_SLOT)
+        later = MONDAY_SLOT + timedelta(hours=3)
+        assert catch_up_weekly(session_factory, now=later, require_no_attempt=True) is None
+        assert len(_rows(curated_engine, pipeline_runs_table)) == 1
+
+
+class TestMissedRuns:
+    def test_gap_weeks_get_one_missed_run_alert_each(
+        self, curated_engine: Engine, session_factory
+    ) -> None:
+        with curated_engine.begin() as conn:
+            for week in ("2026-07-27", "2026-08-03", "2026-08-17", "2026-08-31"):
+                conn.execute(
+                    issues_table.insert().values(
+                        week_of=datetime.fromisoformat(week).date(), status="published"
+                    )
+                )
+        now = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)  # Friday of week 2026-09-21
+
+        reported = record_missed_runs(session_factory, now=now)
+
+        # 08-10 and 08-24 are gaps; 09-07 and 09-14 are gaps too; 09-21 is
+        # the current week (left to catch-up, not reported).
+        expected = ["2026-08-10", "2026-08-24", "2026-09-07", "2026-09-14"]
+        assert [w.isoformat() for w in reported] == expected
+        # Idempotent.
+        assert record_missed_runs(session_factory, now=now) == []
+        alerts = _rows(curated_engine, alerts_table)
+        assert [a.reason for a in alerts] == ["missed_run"] * 4
+
+    def test_no_issues_means_nothing_to_report(self, session_factory) -> None:
+        assert record_missed_runs(session_factory) == []
