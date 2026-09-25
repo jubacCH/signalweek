@@ -16,8 +16,11 @@ The digest is assembled automatically from a checked-in list of feeds
    with `httpx`, parsed with `feedparser`, and written into `raw_items`
    deduplicated on `(source_id, canonical_url)`.
 2. **Cluster** (part of the ingest tick). New `raw_items` are grouped into
-   `clusters` — one per real-world story — using canonical URL first, then a
-   fuzzy title fallback for the same story mirrored on different outlets.
+   `clusters` — one per real-world story — using canonical URL first, then
+   headline cosine similarity ≥ 0.85 on a local sentence-embedding model
+   (all-MiniLM-L6-v2 via ONNX Runtime, baked into the image). Embeddings and
+   cluster membership are stored on `raw_items`, so each tick only embeds new
+   headlines.
 3. **Classify** (at build time). Each cluster is mapped to exactly one of the
    five sections by a keyword-based classifier, with the originating source's
    `category_hint` as a tiebreaker.
@@ -154,10 +157,15 @@ exist for the same date range in test/staging databases.
 ```sh
 pip install -e '.[dev]'
 alembic upgrade head
+# Headline-embedding model for clustering (~90 MB, one-off):
+python -m signalweek.ingest.embed download ~/.cache/signalweek-model
+export SIGNALWEEK_EMBED_MODEL_DIR=~/.cache/signalweek-model
 uvicorn signalweek.main:app --reload
 ```
 
-Run tests and lints:
+Run tests and lints (the real-model tests in
+`tests/test_ingest_cluster_embedding.py` skip unless
+`SIGNALWEEK_EMBED_MODEL_DIR` is set):
 
 ```sh
 pytest

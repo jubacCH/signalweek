@@ -18,5 +18,16 @@ jobs:
         run: |
           ruff check .
           ruff format --check .
+      - name: Cache embedding model
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/embed-model
+          key: embed-model-${{ hashFiles('src/signalweek/ingest/embed.py') }}
+      - name: Download embedding model
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        run: python -m signalweek.ingest.embed download "$RUNNER_TEMP/embed-model"
       - name: Test (pytest)
+        env:
+          SIGNALWEEK_EMBED_MODEL_DIR: ${{ runner.temp }}/embed-model
         run: pytest

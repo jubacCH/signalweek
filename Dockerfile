@@ -21,13 +21,18 @@ COPY src ./src
 RUN pip install --upgrade pip \
  && pip install .
 
+# Bake the pinned, checksummed headline-embedding model into the image so the
+# app never downloads anything at runtime (see signalweek.ingest.embed).
+RUN python -m signalweek.ingest.embed download /opt/signalweek-model
+
 # ---------- runtime ----------
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
-    DATABASE_URL="sqlite:////app/data/signalweek.db"
+    DATABASE_URL="sqlite:////app/data/signalweek.db" \
+    SIGNALWEEK_EMBED_MODEL_DIR="/opt/signalweek-model"
 
 WORKDIR /app
 
@@ -38,6 +43,7 @@ RUN groupadd --system --gid 1000 signalweek \
  && chown -R signalweek:signalweek /app
 
 COPY --from=builder --chown=signalweek:signalweek /opt/venv /opt/venv
+COPY --from=builder /opt/signalweek-model /opt/signalweek-model
 COPY --chown=signalweek:signalweek alembic.ini ./alembic.ini
 COPY --chown=signalweek:signalweek alembic ./alembic
 COPY --chown=signalweek:signalweek src ./src
