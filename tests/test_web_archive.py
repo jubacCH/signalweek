@@ -372,3 +372,45 @@ def test_issue_permalink_escapes_untrusted_item_text(client: TestClient, engine:
     body = client.get("/issues/2026-07-20").text
     assert "<script>alert(1)</script>" not in body
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
+
+
+def test_issues_index_shows_a_rule_based_blurb_per_issue(
+    client: TestClient, engine: Engine
+) -> None:
+    issue_id = _seed_published_issue(
+        engine,
+        week_of=date(2026, 7, 20),
+        published_at=datetime(2026, 7, 20, 9, 0, tzinfo=UTC),
+        headline="Models-Lead",
+        primary_url="https://a.example/m",
+    )
+    with engine.begin() as conn:
+        for position, (category, headline) in enumerate(
+            [
+                ("models", "Models-Second"),
+                ("funding", "Funding-Lead"),
+                ("research", "Research-Lead"),
+                ("industry_moves", "Moves-Lead"),
+            ],
+            start=2,
+        ):
+            url = f"https://a.example/{position}"
+            cluster_id = _insert_cluster(
+                conn, primary_url=url, category=category, headline=headline
+            )
+            _insert_item(
+                conn,
+                issue_id=issue_id,
+                cluster_id=cluster_id,
+                category=category,
+                position=position,
+                headline=headline,
+                summary="s",
+                primary_url=url,
+            )
+
+    body = client.get("/issues").text
+    assert (
+        '<span class="issues-index__blurb">Models-Lead · Funding-Lead · Research-Lead</span>'
+        in body
+    )

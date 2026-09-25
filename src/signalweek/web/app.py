@@ -25,7 +25,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from signalweek.db.session import create_session_factory, get_engine
 from signalweek.ingest.classify import CATEGORIES, CATEGORY_LABELS
 from signalweek.scheduler import create_scheduler, schedule_startup_recovery
-from signalweek.sources import seed_sources_if_empty
+from signalweek.sources import seed_sources_if_empty, sync_source_names
 from signalweek.web.admin import register_admin_router, resolve_admin_token
 from signalweek.web.archive import (
     load_published_issue_by_week,
@@ -67,6 +67,7 @@ def create_app(
             try:
                 with eng.begin() as conn:
                     seeded = seed_sources_if_empty(conn)
+                    sync_source_names(conn)
                 if seeded:
                     _logger.info("seeded %d sources on startup", seeded)
             except Exception:

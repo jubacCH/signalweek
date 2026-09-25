@@ -175,3 +175,21 @@ def test_issue_page_uses_signalweek_design_system() -> None:
 def test_week_of_appears_in_heading() -> None:
     html = _render()
     assert "2026-07-27" in html
+
+
+def test_item_shows_source_name_and_iso_publish_date() -> None:
+    text = _render(
+        items=[
+            _item(
+                source_name="OpenAI",
+                source_published_at=datetime(2026, 7, 25, 14, 30, tzinfo=UTC),
+            )
+        ]
+    )
+    assert '<span class="issue__item-source">OpenAI</span>' in text
+    assert 'datetime="2026-07-25T14:30:00+00:00">2026-07-25</time>' in text
+
+
+def test_item_without_what_happened_renders_no_empty_paragraph() -> None:
+    text = _render(items=[_item(summary="")])
+    assert "issue__item-summary" not in text
