@@ -39,6 +39,7 @@ src/signalweek/web/templates/base.html.j2
 src/signalweek/web/templates/issue.html.j2
 src/signalweek/web/templates/issues_index.html.j2
 src/signalweek/web/templates/landing.html.j2
+src/signalweek/web/templates/not_found.html.j2
 tests/test_acceptance.py
 tests/test_admin_api.py
 tests/test_cli.py

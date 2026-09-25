@@ -24,9 +24,12 @@ from sqlalchemy.engine import Connection, Engine
 from signalweek.db.session import create_db_engine
 from signalweek.digest.builder import (
     DEFAULT_MIN_ITEMS,
+    WHAT_HAPPENED_MAX_WORDS,
     BuildResult,
     IssueAlreadyExistsError,
     build_issue,
+    build_what_happened,
+    refresh_item_render_fields,
 )
 from signalweek.ingest.classify import CATEGORIES
 from signalweek.sources import (
@@ -62,10 +65,11 @@ def _insert_source(
     *,
     url: str,
     category_hint: str | None = "models",
+    name: str | None = None,
 ) -> int:
     result = conn.execute(
         sources_table.insert()
-        .values(url=url, kind="rss", category_hint=category_hint, active=True)
+        .values(url=url, kind="rss", category_hint=category_hint, active=True, name=name)
         .returning(sources_table.c.id)
     )
     return int(result.scalar_one())
@@ -80,6 +84,7 @@ def _insert_raw_item(
     title: str = "T",
     body: str | None = None,
     first_seen_at: datetime = NOW,
+    published_at: datetime | None = None,
 ) -> int:
     result = conn.execute(
         raw_items_table.insert()
@@ -91,6 +96,7 @@ def _insert_raw_item(
             body=body,
             fetched_at=first_seen_at,
             first_seen_at=first_seen_at,
+            published_at=published_at,
         )
         .returning(raw_items_table.c.id)
     )
@@ -620,14 +626,14 @@ def test_summary_extracts_a_short_lede_and_strips_html(curated_engine: Engine) -
         ).one()
 
     assert row.headline == "OpenAI unveils GPT-5"
-    assert row.summary.startswith("OpenAI unveils GPT-5 — ")
-    # HTML tags are stripped and the summary is bounded.
-    assert "<p>" not in row.summary
-    assert "</p>" not in row.summary
-    assert len(row.summary) <= 400
+    # The sentence repeating the headline goes; HTML is stripped.
+    assert row.summary == (
+        "The company says the new system doubles benchmark scores over GPT-4. "
+        "More details will follow in a live-streamed briefing."
+    )
 
 
-def test_summary_falls_back_to_headline_when_body_is_empty(
+def test_summary_is_empty_when_body_is_empty(
     curated_engine: Engine,
 ) -> None:
     with curated_engine.begin() as conn:
@@ -652,7 +658,8 @@ def test_summary_falls_back_to_headline_when_body_is_empty(
             items_table.select().where(items_table.c.issue_id == result.issue_id)
         ).one()
 
-    assert row.summary == "OpenAI unveils GPT-5"
+    # No body: no what-happened text rather than a repeat of the headline.
+    assert row.summary == ""
 
 
 def test_extra_source_urls_collects_distinct_additional_outlets(
@@ -734,3 +741,171 @@ def test_arxiv_extra_sources_are_dropped_outside_research(curated_engine: Engine
 
     assert row.category == "models"
     assert row.extra_source_urls == ["https://theverge.com/rss.xml"]
+
+
+# ---------------------------------------------------------------------------
+# Render contract (spec criterion 8): byline + <=40-word what-happened
+# ---------------------------------------------------------------------------
+
+ARXIV_TITLE = "OneBid: A Unified Auto-Bidding Foundation Model for Diverse oCPX Advertising"
+ARXIV_BODY = (
+    "arXiv:2609.21550v1 Announce Type: cross Abstract: Auto-bidding is central to "
+    "online advertising. We present OneBid, a single foundation model that serves "
+    "every oCPX scenario at once. It replaces dozens of per-scenario models, cuts "
+    "serving cost by forty percent and lifts advertiser value in large online A/B "
+    "tests across three markets. We release the training recipe and an offline "
+    "benchmark so others can reproduce the results."
+)
+
+
+def test_what_happened_strips_arxiv_preamble_and_caps_at_40_words() -> None:
+    text = build_what_happened(ARXIV_TITLE, ARXIV_BODY)
+    assert text.startswith("Auto-bidding is central to online advertising.")
+    assert "arXiv:" not in text and "Abstract:" not in text
+    assert len(text.split()) <= WHAT_HAPPENED_MAX_WORDS
+    # Whole sentences only when they fit.
+    assert text.endswith(".")
+
+
+def test_what_happened_strips_a_repeated_headline_prefix() -> None:
+    stored = f"{ARXIV_TITLE} — {ARXIV_BODY[:200]}"
+    text = build_what_happened(ARXIV_TITLE, stored)
+    assert not text.startswith("OneBid")
+    assert text.startswith("Auto-bidding")
+
+
+def test_what_happened_cuts_one_long_sentence_at_the_word_budget() -> None:
+    body = "Word " * 90 + "end."
+    text = build_what_happened("Headline", body)
+    assert len(text.split()) == WHAT_HAPPENED_MAX_WORDS
+    assert text.endswith("…")
+
+
+def test_what_happened_drops_wordpress_footer_and_entities() -> None:
+    body = (
+        "<p>Acme raised &#36;200M &amp; more.</p> "
+        "The post Acme raises $200M appeared first on Example News."
+    )
+    assert build_what_happened("Acme raises $200M", body) == "Acme raised $200M & more."
+
+
+def test_headline_entities_are_decoded_on_build(curated_engine: Engine) -> None:
+    with curated_engine.begin() as conn:
+        s = _insert_source(conn, url="https://www.theverge.com/rss/ai/index.xml")
+        _insert_raw_item(conn, source_id=s, url="https://www.theverge.com/a", body="Body.")
+        _insert_cluster(
+            conn,
+            primary_url="https://www.theverge.com/a",
+            canonical_headline="Nvidia&#8217;s Jensen Huang speaks",
+            category="models",
+        )
+
+    with curated_engine.begin() as conn:
+        result = build_issue(conn, now=NOW, min_items=1)
+        row = conn.execute(
+            items_table.select().where(items_table.c.issue_id == result.issue_id)
+        ).one()
+
+    assert row.headline == "Nvidia\u2019s Jensen Huang speaks"
+
+
+def test_what_happened_is_empty_when_body_only_repeats_the_headline() -> None:
+    assert build_what_happened("OpenAI unveils GPT-5", "OpenAI unveils GPT-5.") == ""
+
+
+def test_item_stores_source_name_and_entry_publish_date(curated_engine: Engine) -> None:
+    published = datetime(2026, 7, 25, 14, 30, tzinfo=UTC)
+    with curated_engine.begin() as conn:
+        s = _insert_source(conn, url="https://openai.com/blog/rss.xml", name="OpenAI")
+        _insert_raw_item(
+            conn,
+            source_id=s,
+            url="https://openai.com/blog/gpt-5",
+            title="OpenAI unveils GPT-5",
+            body="GPT-5 ships today.",
+            published_at=published,
+        )
+        _insert_cluster(
+            conn,
+            primary_url="https://openai.com/blog/gpt-5",
+            canonical_headline="OpenAI unveils GPT-5",
+            category="models",
+        )
+
+    with curated_engine.begin() as conn:
+        result = build_issue(conn, now=NOW, min_items=1)
+        row = conn.execute(
+            items_table.select().where(items_table.c.issue_id == result.issue_id)
+        ).one()
+
+    assert row.source_name == "OpenAI"
+    assert row.source_published_at == published.replace(tzinfo=None)
+
+
+def test_item_byline_falls_back_to_host_and_first_seen(curated_engine: Engine) -> None:
+    with curated_engine.begin() as conn:
+        s = _insert_source(conn, url="https://feeds.example.com/rss")
+        _insert_raw_item(conn, source_id=s, url="https://www.example.com/story", body="x.")
+        _insert_cluster(
+            conn,
+            primary_url="https://www.example.com/story",
+            canonical_headline="Story",
+            category="models",
+        )
+
+    with curated_engine.begin() as conn:
+        result = build_issue(conn, now=NOW, min_items=1)
+        row = conn.execute(
+            items_table.select().where(items_table.c.issue_id == result.issue_id)
+        ).one()
+
+    assert row.source_name == "example.com"
+    assert row.source_published_at == NOW.replace(tzinfo=None)
+
+
+def test_refresh_item_render_fields_repairs_already_built_items(curated_engine: Engine) -> None:
+    published = datetime(2026, 7, 24, 8, 0, tzinfo=UTC)
+    with curated_engine.begin() as conn:
+        s = _insert_source(conn, url="https://export.arxiv.org/rss/cs.AI", name="arXiv cs.AI")
+        _insert_raw_item(
+            conn,
+            source_id=s,
+            url="https://arxiv.org/abs/2609.21550",
+            title=ARXIV_TITLE,
+            body=ARXIV_BODY,
+            published_at=published,
+        )
+        cid = _insert_cluster(
+            conn,
+            primary_url="https://arxiv.org/abs/2609.21550",
+            canonical_headline=ARXIV_TITLE,
+            category="research",
+        )
+        issue_id = int(
+            conn.execute(
+                issues_table.insert()
+                .values(week_of=date(2026, 7, 20), status="published", published_at=NOW)
+                .returning(issues_table.c.id)
+            ).scalar_one()
+        )
+        conn.execute(
+            items_table.insert().values(
+                issue_id=issue_id,
+                cluster_id=cid,
+                category="research",
+                position=1,
+                headline=ARXIV_TITLE,
+                summary=f"{ARXIV_TITLE} — {ARXIV_BODY}",
+                primary_url="https://arxiv.org/abs/2609.21550",
+                extra_source_urls=[],
+            )
+        )
+
+    with curated_engine.begin() as conn:
+        assert refresh_item_render_fields(conn) == 1
+        row = conn.execute(items_table.select()).one()
+
+    assert row.source_name == "arXiv cs.AI"
+    assert row.source_published_at == published.replace(tzinfo=None)
+    assert row.summary.startswith("Auto-bidding")
+    assert len(row.summary.split()) <= WHAT_HAPPENED_MAX_WORDS

@@ -19,13 +19,17 @@ items are still written to disk so an editor can see what the pipeline
 came up with.
 
 The build is deliberately deterministic given ``now`` and the DB state:
-identical inputs produce byte-identical rows. All summaries are
-rule-based/extractive (headline + short lede pulled from the source's
-body) — no LLM is invoked here.
+identical inputs produce byte-identical rows. Each item's "what happened"
+(``items.summary``) is rule-based/extractive: the source body with the
+repeated headline and feed boilerplate removed, cut at a sentence boundary
+and hard-capped at :data:`WHAT_HAPPENED_MAX_WORDS` words (spec criterion 8)
+— no LLM is invoked here. The byline (source publication name + source
+publish date) is frozen onto the item at build time.
 """
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -64,12 +68,20 @@ DEFAULT_LOOKBACK_DAYS = 7
 # How many recently-published issues participate in cross-issue URL dedup.
 DEFAULT_DEDUP_WINDOW_ISSUES = 12
 
-# Maximum characters retained from a raw_item body for the item summary.
-_SUMMARY_MAX_CHARS = 350
+# Spec criterion 8: the "what happened" body is at most 40 words.
+WHAT_HAPPENED_MAX_WORDS = 40
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
-_SENTENCE_END_RE = re.compile(r"[.!?](?:\s|$)")
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+# arXiv listing bodies open with "arXiv:2609.21550v1 Announce Type: cross Abstract:".
+_ARXIV_PREAMBLE_RE = re.compile(
+    r"^arXiv:\S+\s+Announce Type:\s*\S+\s*(?:Abstract:\s*)?", re.IGNORECASE
+)
+# WordPress feeds append "The post <title> appeared first on <site>."
+_WP_FOOTER_RE = re.compile(r"\s*The post .{0,300}? appeared first on .{0,120}$", re.IGNORECASE)
+# Separators left behind once a leading headline is cut off.
+_LEADING_SEPARATORS = " \t-–—:|."
 
 
 @dataclass
@@ -142,7 +154,7 @@ def build_issue(
 
     cluster_rows = _load_clusters(connection, candidate_cluster_ids)
     sources_by_cluster = _load_cluster_sources(connection, candidate_cluster_ids)
-    primary_bodies = _load_primary_bodies(connection, cluster_rows)
+    anchors = _load_anchors(connection, {url for _, _, url in cluster_rows.values()})
 
     rejected = 0
     inputs: list[ClusterInput] = []
@@ -182,7 +194,7 @@ def build_issue(
         picked=picked,
         cluster_rows=cluster_rows,
         sources_by_cluster=sources_by_cluster,
-        primary_bodies=primary_bodies,
+        anchors=anchors,
     )
     _finalise_status(connection, issue_id=issue_id, status=status, now=now)
 
@@ -347,32 +359,89 @@ def _load_cluster_sources(
     return grouped
 
 
-def _load_primary_bodies(
-    connection: Connection, cluster_rows: dict[int, tuple[str, str, str]]
-) -> dict[int, str | None]:
-    """Fetch the ``body`` text of each cluster's anchor raw_item.
+@dataclass(frozen=True)
+class _Anchor:
+    """The raw_item a cluster is named after, plus its source's byline."""
+
+    body: str | None
+    source_name: str | None
+    published_at: datetime
+
+
+def _load_anchors(connection: Connection, primary_urls: set[str]) -> dict[str, _Anchor]:
+    """Fetch the anchor raw_item for each primary URL.
 
     The anchor is the raw_item whose ``url`` matches ``clusters.primary_url``
     exactly — that is how the clustering pass names it. If multiple raw_items
     share that URL (rare but possible when several sources publish the exact
-    same link), the earliest by ``first_seen_at`` wins.
+    same link), the earliest by ``first_seen_at`` wins. The publish date is
+    the feed entry's own stamp, or ``first_seen_at`` for undated entries.
     """
-    if not cluster_rows:
+    if not primary_urls:
         return {}
-    primary_urls = {url for _, _, url in cluster_rows.values()}
     rows = connection.execute(
         select(
             raw_items_table.c.url,
             raw_items_table.c.body,
+            raw_items_table.c.published_at,
             raw_items_table.c.first_seen_at,
+            sources_table.c.name,
+        )
+        .select_from(
+            raw_items_table.join(sources_table, raw_items_table.c.source_id == sources_table.c.id)
         )
         .where(raw_items_table.c.url.in_(primary_urls))
         .order_by(raw_items_table.c.first_seen_at.asc(), raw_items_table.c.id.asc())
     ).all()
-    body_by_url: dict[str, str | None] = {}
+    anchors: dict[str, _Anchor] = {}
     for row in rows:
-        body_by_url.setdefault(row.url, row.body)
-    return {cid: body_by_url.get(url) for cid, (_, _, url) in cluster_rows.items()}
+        if row.url in anchors:
+            continue
+        anchors[row.url] = _Anchor(
+            body=row.body,
+            source_name=row.name,
+            published_at=_ensure_aware(row.published_at or row.first_seen_at),
+        )
+    return anchors
+
+
+def refresh_item_render_fields(bind: Session | Connection, *, issue_id: int | None = None) -> int:
+    """Recompute the what-happened body and byline on already-built items.
+
+    Used once to bring issues built before the render contract existed up to
+    it; safe to re-run. Items whose anchor raw_item is gone keep their
+    stored summary, cleaned and capped the same way. Returns the row count.
+    """
+    connection = _as_connection(bind)
+    stmt = select(
+        items_table.c.id,
+        items_table.c.headline,
+        items_table.c.summary,
+        items_table.c.primary_url,
+        items_table.c.source_name,
+        items_table.c.source_published_at,
+    )
+    if issue_id is not None:
+        stmt = stmt.where(items_table.c.issue_id == issue_id)
+    rows = connection.execute(stmt).all()
+    anchors = _load_anchors(connection, {row.primary_url for row in rows})
+    for row in rows:
+        anchor = anchors.get(row.primary_url)
+        body = anchor.body if anchor is not None and anchor.body else row.summary
+        headline = _clean_headline(row.headline)
+        connection.execute(
+            items_table.update()
+            .where(items_table.c.id == row.id)
+            .values(
+                headline=headline,
+                summary=build_what_happened(headline, body),
+                source_name=_source_name(anchor, row.primary_url),
+                source_published_at=(
+                    anchor.published_at if anchor is not None else row.source_published_at
+                ),
+            )
+        )
+    return len(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -396,13 +465,14 @@ def _insert_items(
     picked: list[RankedCluster],
     cluster_rows: dict[int, tuple[str, str, str]],
     sources_by_cluster: dict[int, list[ClusterSource]],
-    primary_bodies: dict[int, str | None],
+    anchors: dict[str, _Anchor],
 ) -> None:
     for position, ranked in enumerate(picked, start=1):
         cid = ranked.cluster_id
-        headline = ranked.canonical_headline
+        headline = _clean_headline(ranked.canonical_headline)
         primary_url = ranked.primary_url
-        summary = _build_summary(headline, primary_bodies.get(cid))
+        anchor = anchors.get(primary_url)
+        summary = build_what_happened(headline, anchor.body if anchor is not None else None)
         extras = _extra_source_urls(sources_by_cluster.get(cid, ()), primary_url)
         if ranked.category != "research":
             # arXiv links belong in Research only, citations included.
@@ -417,6 +487,8 @@ def _insert_items(
                 summary=summary,
                 primary_url=primary_url,
                 extra_source_urls=extras,
+                source_name=_source_name(anchor, primary_url),
+                source_published_at=anchor.published_at if anchor is not None else None,
             )
         )
 
@@ -435,45 +507,71 @@ def _finalise_status(connection: Connection, *, issue_id: int, status: str, now:
 # ---------------------------------------------------------------------------
 
 
-def _build_summary(headline: str, body: str | None) -> str:
-    """Return ``headline`` optionally followed by a short extractive lede.
+def build_what_happened(headline: str, body: str | None) -> str:
+    """Return the item's "what happened" text: at most 40 words, no headline.
 
-    The lede is the first sentence (or the leading chunk truncated at
-    ~350 characters) of the raw_item body, with HTML tags and repeated
-    whitespace stripped. When the body is empty or reduces to the headline,
-    only the headline is returned.
+    HTML, the repeated headline and feed boilerplate (arXiv preambles,
+    WordPress footers) are removed; then whole sentences are kept while they
+    fit :data:`WHAT_HAPPENED_MAX_WORDS`. A single over-long first sentence is
+    cut to the word budget and ends in "…". Returns ``""`` when nothing but
+    the headline is left — the page then shows no body rather than a repeat.
     """
-    headline_clean = headline.strip()
     if not body:
-        return headline_clean
-    lede = _extract_lede(body)
-    if not lede or _WHITESPACE_RE.sub(" ", lede.lower()) == headline_clean.lower():
-        return headline_clean
-    return f"{headline_clean} — {lede}"
-
-
-def _extract_lede(body: str) -> str:
-    """Strip HTML/whitespace from ``body`` and truncate to a sentence."""
-    text = _HTML_TAG_RE.sub(" ", body)
-    text = _WHITESPACE_RE.sub(" ", text).strip()
-    if not text:
         return ""
+    text = _WHITESPACE_RE.sub(" ", html.unescape(_HTML_TAG_RE.sub(" ", body))).strip()
+    headline_clean = _clean_headline(headline)
+    previous = None
+    while text != previous:
+        previous = text
+        text = _ARXIV_PREAMBLE_RE.sub("", text)
+        if headline_clean and text.lower().startswith(headline_clean.lower()):
+            text = _drop_headline(text, len(headline_clean))
+        text = _WP_FOOTER_RE.sub("", text).strip()
+    return _cap_words(text, WHAT_HAPPENED_MAX_WORDS)
 
-    match = _SENTENCE_END_RE.search(text, endpos=_SUMMARY_MAX_CHARS + 1)
-    if match:
-        end = match.end() - 1  # include the punctuation, drop the trailing space
-        candidate = text[:end].rstrip()
-        if candidate:
-            return candidate
 
-    if len(text) <= _SUMMARY_MAX_CHARS:
-        return text
-    # Truncate on the last whitespace within the budget so we don't chop a word.
-    truncated = text[:_SUMMARY_MAX_CHARS].rstrip()
-    space = truncated.rfind(" ")
-    if space > 0:
-        truncated = truncated[:space].rstrip()
-    return f"{truncated}…"
+def _clean_headline(headline: str) -> str:
+    """Decode feed HTML entities ("Nvidia&#8217;s") and collapse whitespace;
+    the template escapes on output, so stored text must be plain."""
+    return _WHITESPACE_RE.sub(" ", html.unescape(headline)).strip()
+
+
+def _drop_headline(text: str, headline_len: int) -> str:
+    """Remove a leading headline from ``text``.
+
+    "Headline — body" / "Headline: body" lose the headline and separator.
+    When the headline instead opens a longer sentence ("Headline, a new …")
+    that whole sentence goes if more follow; otherwise its tail is kept,
+    capitalised, so the body never starts mid-sentence in lower case.
+    """
+    rest = text[headline_len:]
+    if not rest or rest[0] in _LEADING_SEPARATORS:
+        return rest.lstrip(_LEADING_SEPARATORS)
+    sentences = _SENTENCE_SPLIT_RE.split(text, maxsplit=1)
+    if len(sentences) == 2:
+        return sentences[1]
+    rest = rest.lstrip(" ,;")
+    return rest[:1].upper() + rest[1:]
+
+
+def _cap_words(text: str, limit: int) -> str:
+    kept: list[str] = []
+    for sentence in _SENTENCE_SPLIT_RE.split(text):
+        words = sentence.split()
+        if len(kept) + len(words) <= limit:
+            kept.extend(words)
+            continue
+        if not kept:
+            return " ".join(words[:limit]).rstrip(",;:-–—") + "…"
+        break
+    return " ".join(kept)
+
+
+def _source_name(anchor: _Anchor | None, primary_url: str) -> str:
+    """Registry name of the primary source, else the article's host."""
+    if anchor is not None and anchor.source_name:
+        return anchor.source_name
+    return _host(primary_url)
 
 
 def _extra_source_urls(

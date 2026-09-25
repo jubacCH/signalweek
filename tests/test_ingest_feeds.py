@@ -488,3 +488,46 @@ def test_an_empty_but_valid_feed_is_still_a_success(curated_engine: Engine) -> N
             conn, source_id=source_id, url="https://quiet.example.com/rss.xml", content=empty
         )
     assert (result.inserted, result.error) == (0, None)
+
+
+def test_ingest_source_stores_the_entry_publish_date(curated_engine: Engine) -> None:
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(conn, url="https://blog.example.com/feed")
+        ingest_source(
+            conn,
+            source_id=source_id,
+            url="https://blog.example.com/feed",
+            content=_fixture("example_rss.xml"),
+            now=FIXED_NOW,
+        )
+        rows = _stored_rows(conn, source_id)
+
+    assert [r["published_at"] for r in rows] == [
+        datetime(2026, 7, 20, 9, 0),
+        datetime(2026, 7, 21, 12, 30),
+    ]
+
+
+def test_ingest_source_backfills_publish_date_on_undated_rows(curated_engine: Engine) -> None:
+    """Rows stored before raw_items.published_at existed pick up the date."""
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(conn, url="https://blog.example.com/feed")
+        ingest_source(
+            conn,
+            source_id=source_id,
+            url="https://blog.example.com/feed",
+            content=_fixture("example_rss.xml"),
+            now=FIXED_NOW,
+        )
+        conn.execute(raw_items_table.update().values(published_at=None))
+        result = ingest_source(
+            conn,
+            source_id=source_id,
+            url="https://blog.example.com/feed",
+            content=_fixture("example_rss.xml"),
+            now=FIXED_NOW,
+        )
+        rows = _stored_rows(conn, source_id)
+
+    assert result.inserted == 0
+    assert all(r["published_at"] is not None for r in rows)

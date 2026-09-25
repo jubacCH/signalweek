@@ -38,6 +38,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    or_,
     select,
 )
 from sqlalchemy.engine import Connection
@@ -83,6 +84,9 @@ sources_table = Table(
     Column("url", String(2048), nullable=False, unique=True, index=True),
     Column("kind", String(32), nullable=False),
     Column("category_hint", String(64), nullable=True),
+    # Publication name shown on each item's byline (``sources.yaml`` ``name``).
+    # NULL for discovered sources; readers fall back to the feed host.
+    Column("name", String(255), nullable=True),
     # When set, the classifier uses ``category_hint`` outright instead of
     # letting headline keywords override it — for clearly single-category
     # feeds (arXiv, court dockets). Mirrors migration 0007.
@@ -188,6 +192,8 @@ raw_items_table = Table(
     Column("body", Text, nullable=True),
     Column("fetched_at", DateTime(timezone=True), nullable=False),
     Column("first_seen_at", DateTime(timezone=True), nullable=False, index=True),
+    # The feed entry's own ``published``/``updated`` stamp; NULL when undated.
+    Column("published_at", DateTime(timezone=True), nullable=True),
     UniqueConstraint("source_id", "canonical_url", name="uq_raw_items_source_canonical"),
 )
 
@@ -248,6 +254,10 @@ items_table = Table(
     Column("summary", Text, nullable=False),
     Column("primary_url", String(2048), nullable=False),
     Column("extra_source_urls", JSON, nullable=False, server_default="[]"),
+    # Byline for the primary source (migration 0008): publication name and
+    # the source's publish date (entry date, else when we first saw it).
+    Column("source_name", String(255), nullable=True),
+    Column("source_published_at", DateTime(timezone=True), nullable=True),
     UniqueConstraint("issue_id", "position", name="uq_items_issue_position"),
     UniqueConstraint("issue_id", "cluster_id", name="uq_items_issue_cluster"),
 )
@@ -423,6 +433,7 @@ def upsert_sources(
                 sources_table.c.category_hint,
                 sources_table.c.category_locked,
                 sources_table.c.active,
+                sources_table.c.name,
             ).where(sources_table.c.url == spec.url)
         ).first()
         locked = is_category_locked(spec.kind, spec.category_locked)
@@ -435,6 +446,7 @@ def upsert_sources(
                     category_hint=spec.category_hint,
                     category_locked=locked,
                     active=True,
+                    name=spec.name,
                 )
             )
             inserted += 1
@@ -445,6 +457,7 @@ def upsert_sources(
             or existing.category_hint != spec.category_hint
             or bool(existing.category_locked) is not locked
             or bool(existing.active) is not True
+            or existing.name != spec.name
         )
         if needs_update:
             connection.execute(
@@ -455,6 +468,7 @@ def upsert_sources(
                     category_hint=spec.category_hint,
                     category_locked=locked,
                     active=True,
+                    name=spec.name,
                 )
             )
             updated += 1
@@ -478,6 +492,29 @@ def seed_sources_if_empty(bind: Session | Connection, path: str | Path | None = 
         return 0
     result = upsert_sources_from_yaml(bind, path)
     return getattr(result, "total", 0) or 0
+
+
+def sync_source_names(bind: Session | Connection, path: str | Path | None = None) -> int:
+    """Copy each YAML ``name`` onto its existing ``sources`` row.
+
+    Touches nothing else — unlike :func:`upsert_sources` it never re-activates
+    a source the health prune retired. Runs at boot so bylines follow the
+    registry. Returns the number of rows changed."""
+    conn = _as_connection(bind)
+    changed = 0
+    for spec in load_sources_yaml(path):
+        if spec.name is None:
+            continue
+        result = conn.execute(
+            sources_table.update()
+            .where(
+                sources_table.c.url == spec.url,
+                or_(sources_table.c.name.is_(None), sources_table.c.name != spec.name),
+            )
+            .values(name=spec.name)
+        )
+        changed += result.rowcount or 0
+    return changed
 
 
 def upsert_sources_from_yaml(
