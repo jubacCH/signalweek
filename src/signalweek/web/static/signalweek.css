@@ -27,7 +27,7 @@
   --sw-accent-ink:    #2a259f;
   --sw-accent-soft:   #ecebfb;
   --sw-highlight:     #f2b64a;
-  --sw-highlight-ink: #a56a00;
+  --sw-highlight-ink: #945f00;
   --sw-highlight-soft:#fff2d1;
 
   /* ---- category tints (subtle — used only as left-rule + chip color) ---- */
@@ -91,7 +91,7 @@
     --sw-sunken:     #18171f;
     --sw-ink:        #f0eef5;
     --sw-muted:      #b0aebc;
-    --sw-faint:      #807e8d;
+    --sw-faint:      #8c8a9b;
     --sw-line:       #2d2c39;
     --sw-line-soft:  #23222d;
 
