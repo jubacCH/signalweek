@@ -118,7 +118,13 @@
 }
 
 /* ---------- base ---------- */
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  /* Matches body so any viewport taller than the page (e.g. the short 404
+     page on a large display) doesn't reveal the browser's default UA
+     canvas color below the footer. */
+  background: var(--sw-paper);
+}
 body {
   background: var(--sw-paper);
   color: var(--sw-ink);
