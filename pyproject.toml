@@ -37,7 +37,7 @@ signalweek = "signalweek.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"signalweek.web" = ["templates/*.j2", "static/*.css", "static/*.js"]
+"signalweek.web" = ["templates/*.j2", "static/*.css", "static/*.js", "static/*.png"]
 "signalweek" = ["data/*.yaml"]
 
 [tool.ruff]
