@@ -31,7 +31,7 @@ def _item(**overrides: Any) -> dict[str, Any]:
         "headline": "OpenAI releases GPT-6",
         "summary": "OpenAI unveiled GPT-6 today with a 2M-token context window.",
         "primary_url": "https://openai.com/blog/gpt6",
-        "extra_source_urls": [],
+        "extra_sources": [],
     }
     base.update(overrides)
     return base
@@ -80,25 +80,25 @@ def test_item_shows_headline_summary_and_primary_link() -> None:
     assert 'href="https://acme.example/press-release"' in html
 
 
-def test_extra_source_urls_are_rendered_as_links() -> None:
+def test_extra_sources_are_rendered_as_links_to_their_label() -> None:
     html = _render(
         items=[
             _item(
-                extra_source_urls=[
-                    "https://one.example/feed",
-                    "https://two.example/feed",
+                extra_sources=[
+                    {"label": "One Example", "href": "https://one.example/"},
+                    {"label": "two.example", "href": "https://two.example/"},
                 ]
             )
         ]
     )
-    assert 'href="https://one.example/feed"' in html
-    assert 'href="https://two.example/feed"' in html
+    assert '<a href="https://one.example/" rel="noopener" class="source-chip">One Example</a>' in html
+    assert '<a href="https://two.example/" rel="noopener" class="source-chip">two.example</a>' in html
     # An "also covered by" affordance surfaces the extras section.
     assert "Also covered by" in html
 
 
 def test_missing_extra_sources_do_not_render_also_covered_by() -> None:
-    html = _render(items=[_item(extra_source_urls=[])])
+    html = _render(items=[_item(extra_sources=[])])
     assert "Also covered by" not in html
 
 

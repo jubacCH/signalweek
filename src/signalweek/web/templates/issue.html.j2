@@ -59,9 +59,9 @@
 <p class="issue__item-byline">{% if item.source_name %}<span class="issue__item-source">{{ item.source_name }}</span>{% endif %}{% if item.source_name and item.source_published_at %}<span class="issue__item-sep" aria-hidden="true">&middot;</span>{% endif %}{% if item.source_published_at %}<time class="issue__item-date" datetime="{{ item.source_published_at.isoformat() }}">{{ item.source_published_at.date().isoformat() }}</time>{% endif %}</p>
 {% endif %}
 {% if item.summary %}<p class="issue__item-summary">{{ item.summary }}</p>{% endif %}
-{% if item.extra_source_urls %}
+{% if item.extra_sources %}
 <p class="extra-sources"><small>Also covered by:
-{% for url in item.extra_source_urls %}<a href="{{ url }}" rel="noopener" class="source-chip">{{ url|replace('https://', '')|replace('http://', '')|replace('www.', '')|truncate(38, True, '…') }}</a>{% if not loop.last %} {% endif %}{% endfor %}
+{% for source in item.extra_sources %}<a href="{{ source.href }}" rel="noopener" class="source-chip">{{ source.label }}</a>{% if not loop.last %} {% endif %}{% endfor %}
 </small></p>
 {% endif %}
 </li>

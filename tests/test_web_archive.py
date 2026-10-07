@@ -24,6 +24,7 @@ from signalweek.sources import (
     issues_table,
     items_table,
     sources_metadata,
+    sources_table,
 )
 from signalweek.web import create_app
 
@@ -283,19 +284,33 @@ def test_issue_permalink_marks_page_as_published_with_timestamp(
 
 
 def test_issue_permalink_renders_extra_source_urls(client: TestClient, engine: Engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            sources_table.insert().values(
+                url="https://mirror-one.example/feed.xml", kind="rss", name="Mirror One"
+            )
+        )
     _seed_published_issue(
         engine,
         week_of=date(2026, 7, 20),
         published_at=datetime(2026, 7, 20, 9, 0, tzinfo=UTC),
         extra_source_urls=[
-            "https://mirror-one.example/a",
-            "https://mirror-two.example/b",
+            # Registered source: shows its friendly registry name.
+            "https://mirror-one.example/feed.xml",
+            # Unregistered source: falls back to the bare host.
+            "https://mirror-two.example/feed/atom",
         ],
     )
     body = client.get("/issues/2026-07-20").text
     assert "Also covered by" in body
-    assert 'href="https://mirror-one.example/a"' in body
-    assert 'href="https://mirror-two.example/b"' in body
+    # Labels are reader-friendly, never a raw feed path.
+    assert ">Mirror One<" in body
+    assert ">mirror-two.example<" in body
+    # Links go to the outlet's homepage, not the machine-readable feed.
+    assert 'href="https://mirror-one.example/"' in body
+    assert 'href="https://mirror-two.example/"' in body
+    assert "feed.xml" not in body
+    assert "feed/atom" not in body
 
 
 def test_issue_permalink_404_for_unknown_week(client: TestClient) -> None:

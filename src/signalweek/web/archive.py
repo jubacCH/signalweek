@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 
 from signalweek.ingest.classify import CATEGORIES
-from signalweek.sources import issues_table, items_table
+from signalweek.sources import issues_table, items_table, sources_table
 
 # How many section leads the archive blurb strings together.
 BLURB_LEADS = 3
@@ -119,7 +119,7 @@ def load_published_issue_by_week(engine: Engine, week_of: date) -> PublishedIssu
     Returns ``None`` when no row exists for that week, or when the row exists
     but is not ``published`` — the caller turns that into a 404. Items carry
     every field the issue renderer needs (``category``, ``position``,
-    ``headline``, ``summary``, ``primary_url``, ``extra_source_urls``,
+    ``headline``, ``summary``, ``primary_url``, ``extra_sources``,
     ``source_name``, ``source_published_at``).
     """
     with engine.connect() as conn:
@@ -150,6 +150,16 @@ def load_published_issue_by_week(engine: Engine, week_of: date) -> PublishedIssu
             .order_by(items_table.c.position.asc())
         ).all()
 
+        extra_urls = {url for row in item_rows for url in (row.extra_source_urls or [])}
+        names_by_url: dict[str, str] = {}
+        if extra_urls:
+            name_rows = conn.execute(
+                select(sources_table.c.url, sources_table.c.name).where(
+                    sources_table.c.url.in_(extra_urls)
+                )
+            ).all()
+            names_by_url = {row.url: row.name for row in name_rows if row.name}
+
     items: list[Mapping[str, object]] = [
         {
             "category": row.category,
@@ -157,7 +167,9 @@ def load_published_issue_by_week(engine: Engine, week_of: date) -> PublishedIssu
             "headline": row.headline,
             "summary": row.summary,
             "primary_url": row.primary_url,
-            "extra_source_urls": list(row.extra_source_urls or []),
+            "extra_sources": [
+                _extra_source_display(url, names_by_url) for url in (row.extra_source_urls or [])
+            ],
             "source_name": row.source_name,
             "source_published_at": _ensure_aware(row.source_published_at),
         }
@@ -169,6 +181,22 @@ def load_published_issue_by_week(engine: Engine, week_of: date) -> PublishedIssu
         published_at=_ensure_aware(issue_row.published_at),
         items=items,
     )
+
+
+def _extra_source_display(url: str, names_by_url: dict[str, str]) -> dict[str, str]:
+    """Turn a registry feed URL into a reader-facing chip: a friendly label
+    (the registry name, else the bare host) linking to the outlet's homepage
+    rather than the raw feed path — a reader clicking "Also covered by"
+    should land on a readable page, not an RSS/Atom document."""
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    host = parts.hostname or url
+    if host.startswith("www."):
+        host = host[4:]
+    label = names_by_url.get(url, host)
+    href = f"{parts.scheme}://{parts.netloc}/" if parts.scheme and parts.netloc else url
+    return {"label": label, "href": href}
 
 
 def _ensure_aware(dt: datetime | None) -> datetime | None:

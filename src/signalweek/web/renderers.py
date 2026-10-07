@@ -51,7 +51,8 @@ def render_issue(
 
     ``items`` is a flat iterable of mapping-like rows (dict or SQLAlchemy
     Row); each must expose ``category``, ``position``, ``headline``,
-    ``summary``, ``primary_url``, and ``extra_source_urls``. Items are
+    ``summary``, ``primary_url``, and ``extra_sources`` (a list of
+    ``{"label", "href"}`` mappings). Items are
     grouped by category and, within each category, sorted by ``position``
     ascending. Every category in :data:`CATEGORIES` renders its heading even
     when empty — the fixed taxonomy is part of the contract.
