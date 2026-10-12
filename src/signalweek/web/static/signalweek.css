@@ -846,6 +846,21 @@ form.htmx-request button[type=submit]::after {
   .site-footer__inner { flex-direction: column; align-items: flex-start; gap: 1rem; }
 }
 
+/* Below the fixed --sw-page width, Pico's own .container resets its side
+   padding to 0 (it expects auto-centering to supply the gutter by then,
+   which only holds once the viewport is narrower than --sw-page). Until the
+   viewport actually drops below --sw-page, main/header/footer content was
+   landing flush against the screen edge. Restore a consistent inset so
+   nothing touches the edge between a phone and the desktop breakpoint. */
+@media (max-width: 991.98px) {
+  body > main.container,
+  .site-header nav,
+  .site-footer__inner {
+    padding-left: var(--pico-spacing);
+    padding-right: var(--pico-spacing);
+  }
+}
+
 /* ---------- reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
