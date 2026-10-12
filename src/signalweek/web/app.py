@@ -31,7 +31,7 @@ from signalweek.web.archive import (
     load_published_issues,
 )
 from signalweek.web.landing import load_latest_published_issue
-from signalweek.web.renderers import render_issue
+from signalweek.web.renderers import css_asset_version, render_issue
 
 _logger = logging.getLogger(__name__)
 
@@ -98,6 +98,7 @@ def create_app(
             default_for_string=True,
         ),
     )
+    jinja_env.globals["asset_v"] = css_asset_version()
     templates = Jinja2Templates(env=jinja_env)
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

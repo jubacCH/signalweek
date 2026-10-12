@@ -13,6 +13,7 @@ resolving links to the mounted ``/static`` prefix.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from importlib.resources import files
@@ -31,12 +32,25 @@ def _static_url_for(endpoint: str, /, **params: Any) -> str:
     raise ValueError(f"renderers.url_for: unknown endpoint {endpoint!r}")
 
 
+def css_asset_version() -> str:
+    """Content hash of signalweek.css, used to cache-bust the stylesheet link.
+
+    The CDN in front of the app caches /static/* for hours, so a CSS-only
+    deploy was previously invisible to visitors until that cache expired.
+    Tying the query string to the file's own content makes every edit a new
+    cache key automatically.
+    """
+    path = files("signalweek.web") / "static" / "signalweek.css"
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+
+
 def _make_env() -> Environment:
     env = Environment(
         loader=FileSystemLoader(_TEMPLATES_DIR),
         autoescape=True,
     )
     env.globals["url_for"] = _static_url_for
+    env.globals["asset_v"] = css_asset_version()
     return env
 
 
