@@ -86,6 +86,7 @@ def _insert_item(
     summary: str,
     primary_url: str,
     extra_source_urls: list[str] | None = None,
+    source_name: str | None = None,
 ) -> None:
     conn.execute(
         items_table.insert().values(
@@ -97,6 +98,7 @@ def _insert_item(
             summary=summary,
             primary_url=primary_url,
             extra_source_urls=extra_source_urls or [],
+            source_name=source_name,
         )
     )
 
@@ -111,6 +113,7 @@ def _seed_published_issue(
     category: str = "models",
     summary: str = "A 2M-token context window and a new agentic mode.",
     extra_source_urls: list[str] | None = None,
+    source_name: str | None = None,
 ) -> int:
     with engine.begin() as conn:
         issue_id = _insert_issue(
@@ -132,6 +135,7 @@ def _seed_published_issue(
             summary=summary,
             primary_url=primary_url,
             extra_source_urls=extra_source_urls,
+            source_name=source_name,
         )
     return issue_id
 
@@ -311,6 +315,32 @@ def test_issue_permalink_renders_extra_source_urls(client: TestClient, engine: E
     assert 'href="https://mirror-two.example/"' in body
     assert "feed.xml" not in body
     assert "feed/atom" not in body
+
+
+def test_issue_permalink_hides_extra_source_matching_byline(
+    client: TestClient, engine: Engine
+) -> None:
+    """A registry feed can surface an article hosted elsewhere (e.g. a
+    GitHub-trending aggregator), so the byline source and an "extra" source
+    can be the same registry entry despite having different hosts. That must
+    not render as a chip that just repeats the byline back at the reader."""
+    with engine.begin() as conn:
+        conn.execute(
+            sources_table.insert().values(
+                url="https://aggregator.example/trending.xml",
+                kind="rss",
+                name="GitHub trending — Python (weekly)",
+            )
+        )
+    _seed_published_issue(
+        engine,
+        week_of=date(2026, 7, 20),
+        published_at=datetime(2026, 7, 20, 9, 0, tzinfo=UTC),
+        source_name="GitHub trending — Python (weekly)",
+        extra_source_urls=["https://aggregator.example/trending.xml"],
+    )
+    body = client.get("/issues/2026-07-20").text
+    assert "Also covered by" not in body
 
 
 def test_issue_permalink_404_for_unknown_week(client: TestClient) -> None:

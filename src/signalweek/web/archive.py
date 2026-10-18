@@ -167,8 +167,15 @@ def load_published_issue_by_week(engine: Engine, week_of: date) -> PublishedIssu
             "headline": row.headline,
             "summary": row.summary,
             "primary_url": row.primary_url,
+            # The builder dedupes extra sources by host, but a registry feed
+            # (e.g. a GitHub-trending aggregator) and the article it surfaces
+            # live on different hosts — so the same registry source can slip
+            # through as both the byline and an "Also covered by" chip.
+            # Drop that case here, by name, rather than in the pipeline.
             "extra_sources": [
-                _extra_source_display(url, names_by_url) for url in (row.extra_source_urls or [])
+                display
+                for url in (row.extra_source_urls or [])
+                if (display := _extra_source_display(url, names_by_url))["label"] != row.source_name
             ],
             "source_name": row.source_name,
             "source_published_at": _ensure_aware(row.source_published_at),
