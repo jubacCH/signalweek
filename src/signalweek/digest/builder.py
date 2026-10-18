@@ -80,6 +80,26 @@ _ARXIV_PREAMBLE_RE = re.compile(
 )
 # WordPress feeds append "The post <title> appeared first on <site>."
 _WP_FOOTER_RE = re.compile(r"\s*The post .{0,300}? appeared first on .{0,120}$", re.IGNORECASE)
+# Drupal feeds (EC digital strategy) open with the author byline, a post
+# timestamp and teaser dates: "Anonymous (not verified) Fri, 10/09/2026 - 09:16
+# Opening: 29 September 2026 Closing: 03 November 2026".
+_DATE_DMY = r"\d{1,2} [A-Z][a-z]+ \d{4}"
+_DRUPAL_META_RE = re.compile(
+    r"^(?:Anonymous \(not verified\)"
+    r"|(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2}/\d{2}/\d{4} - \d{2}:\d{2}"
+    rf"|(?:Opening|Closing): {_DATE_DMY}"
+    rf"|{_DATE_DMY} - {_DATE_DMY})\s*"
+)
+# GitHub-trending items (GitHubTrendingRSS) are headlined "owner/repo" and their
+# bodies are "<p>tagline</p>", an optional "<p>homepage link</p>", "<hr />",
+# then the whole README; the tagline is the summary.
+_REPO_SLUG_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
+_TAGLINE_RE = re.compile(
+    r"\s*<p>((?:(?!<p\b|</p>).)*)</p>(?:\s*<p>(?:(?!<p\b|</p>).)*</p>)?\s*<hr\b", re.DOTALL
+)
+# A leading phrase repeated after a short title (tagline, README "# name",
+# tagline again): keep the second copy only.
+_REPEATED_LEAD_RE = re.compile(r"^(.{20,300}?)[.!?]?\s+(?:\S+\s+){0,4}?(?=\1(?:[.!?]|$))")
 # Separators left behind once a leading headline is cut off.
 _LEADING_SEPARATORS = " \t-–—:|."
 
@@ -516,13 +536,18 @@ def build_what_happened(headline: str, body: str | None) -> str:
     """Return the item's "what happened" text: at most 40 words, no headline.
 
     HTML, the repeated headline and feed boilerplate (arXiv preambles,
-    WordPress footers) are removed; then whole sentences are kept while they
-    fit :data:`WHAT_HAPPENED_MAX_WORDS`. A single over-long first sentence is
+    WordPress footers, Drupal bylines and dates, a doubled lead phrase) are
+    removed, and a GitHub repo's tagline set off by ``<hr>`` stands in for the
+    README after it; then whole sentences are kept while they fit
+    :data:`WHAT_HAPPENED_MAX_WORDS`. A single over-long first sentence is
     cut to the word budget and ends in "…". Returns ``""`` when nothing but
     the headline is left — the page then shows no body rather than a repeat.
     """
     if not body:
         return ""
+    tagline = _TAGLINE_RE.match(body) if _REPO_SLUG_RE.match(headline.strip()) else None
+    if tagline and _HTML_TAG_RE.sub("", tagline.group(1)).strip():
+        body = tagline.group(1)
     text = _WHITESPACE_RE.sub(" ", html.unescape(_HTML_TAG_RE.sub(" ", body))).strip()
     headline_clean = _clean_headline(headline)
     previous = None
@@ -532,6 +557,8 @@ def build_what_happened(headline: str, body: str | None) -> str:
         if headline_clean and text.lower().startswith(headline_clean.lower()):
             text = _drop_headline(text, len(headline_clean))
         text = _WP_FOOTER_RE.sub("", text).strip()
+        text = _DRUPAL_META_RE.sub("", text)
+        text = _REPEATED_LEAD_RE.sub("", text)
     return _cap_words(text, WHAT_HAPPENED_MAX_WORDS)
 
 

@@ -813,6 +813,74 @@ def test_what_happened_is_empty_when_body_only_repeats_the_headline() -> None:
     assert build_what_happened("OpenAI unveils GPT-5", "OpenAI unveils GPT-5.") == ""
 
 
+def test_what_happened_drops_drupal_byline_and_teaser_dates() -> None:
+    # Shape of the EC digital-strategy feed (Drupal), trimmed.
+    body = (
+        "<span>Consultation on copyright</span>\n"
+        "<span><span>Anonymous (not verified)</span></span>\n"
+        '<span><time datetime="2026-09-29T10:15:00+02:00">Tue, 09/29/2026 - 10:15</time>'
+        "</span><div><ul><li>&nbsp; Opening: 29 September 2026</li>"
+        "<li>&nbsp; Closing: 03 November 2026</li></ul>"
+        "<p>The Commission has launched a targeted consultation.</p></div>"
+    )
+    assert (
+        build_what_happened("Consultation on copyright", body)
+        == "The Commission has launched a targeted consultation."
+    )
+
+
+def test_what_happened_drops_drupal_event_date_range() -> None:
+    body = (
+        "<span>Anonymous (not verified)</span> Thu, 10/08/2026 - 09:00 "
+        "<li>14 October 2026 - 17 November 2026</li><p>From 14 October, events run.</p>"
+    )
+    assert build_what_happened("AI Month", body) == "From 14 October, events run."
+
+
+def test_what_happened_collapses_tagline_repeated_after_readme_title() -> None:
+    body = (
+        "<p>Intercept any app, then call it from Python like a library</p>"
+        "<h1>mimic</h1>\n<p>Intercept any app, then call it from Python like a library.</p>"
+        "\n<p>You don't write the client.</p>"
+    )
+    assert build_what_happened("littledivy/mimic", body) == (
+        "Intercept any app, then call it from Python like a library. You don't write the client."
+    )
+
+
+def test_what_happened_uses_github_trending_tagline_over_readme() -> None:
+    body = (
+        "<p>Native and Compact Structured Latents for 3D Generation</p>"
+        '<p><img alt="link" src="x.png" /><a href="https://x.example">https://x.example</a></p>'
+        "<hr /><h1>TRELLIS.2</h1><p>Native and Compact Structured Latents. More text.</p>"
+    )
+    assert (
+        build_what_happened("microsoft/TRELLIS.2", body)
+        == "Native and Compact Structured Latents for 3D Generation"
+    )
+
+
+def test_what_happened_reads_readme_when_trending_tagline_is_missing() -> None:
+    body = "<div><p>Hy-MT2 is a family of translation models.</p></div><hr /><p>More.</p>"
+    assert (
+        build_what_happened("Tencent/Hy-MT2", body)
+        == "Hy-MT2 is a family of translation models. More."
+    )
+
+
+def test_what_happened_ignores_hr_teaser_outside_github_repos() -> None:
+    body = "<p>Presented by Acme</p><hr /><p>Enterprises are deploying agents.</p>"
+    assert (
+        build_what_happened("Agents at scale", body)
+        == "Presented by Acme Enterprises are deploying agents."
+    )
+
+
+def test_what_happened_keeps_distinct_leading_sentences() -> None:
+    body = "Acme ships a new model today. Acme ships a new model today, again, with more."
+    assert build_what_happened("Headline", body) == body
+
+
 def test_item_stores_source_name_and_entry_publish_date(curated_engine: Engine) -> None:
     published = datetime(2026, 7, 25, 14, 30, tzinfo=UTC)
     with curated_engine.begin() as conn:
