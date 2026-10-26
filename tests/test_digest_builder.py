@@ -977,3 +977,51 @@ def test_refresh_item_render_fields_repairs_already_built_items(curated_engine: 
     assert row.source_published_at == published.replace(tzinfo=None)
     assert row.summary.startswith("Auto-bidding")
     assert len(row.summary.split()) <= WHAT_HAPPENED_MAX_WORDS
+
+
+GITHUB_TRENDING_FEED = "https://mshibanami.github.io/GitHubTrendingRSS/weekly/python.xml"
+
+
+def test_lone_github_trending_repo_is_not_eligible(curated_engine: Engine) -> None:
+    """A repo only the trending feed surfaced is a tool, not industry news."""
+    with curated_engine.begin() as conn:
+        s = _insert_source(conn, url=GITHUB_TRENDING_FEED)
+        _insert_raw_item(
+            conn,
+            source_id=s,
+            url="https://github.com/danyuchn/asd-ste100-skill",
+            title="danyuchn/asd-ste100-skill",
+        )
+        _insert_cluster(
+            conn,
+            primary_url="https://github.com/danyuchn/asd-ste100-skill",
+            canonical_headline="danyuchn/asd-ste100-skill",
+        )
+
+    with curated_engine.begin() as conn:
+        result = build_issue(conn, now=NOW, min_items=1)
+
+    assert result.total_items == 0
+
+
+def test_github_repo_covered_by_a_second_outlet_is_eligible(curated_engine: Engine) -> None:
+    with curated_engine.begin() as conn:
+        s_trending = _insert_source(conn, url=GITHUB_TRENDING_FEED)
+        s_hf = _insert_source(conn, url="https://huggingface.co/blog/feed.xml")
+        for source_id in (s_trending, s_hf):
+            _insert_raw_item(
+                conn,
+                source_id=source_id,
+                url="https://github.com/meituan-longcat/LongCat-Video",
+                title="meituan-longcat/LongCat-Video",
+            )
+        _insert_cluster(
+            conn,
+            primary_url="https://github.com/meituan-longcat/LongCat-Video",
+            canonical_headline="meituan-longcat/LongCat-Video",
+        )
+
+    with curated_engine.begin() as conn:
+        result = build_issue(conn, now=NOW, min_items=1)
+
+    assert result.total_items == 1

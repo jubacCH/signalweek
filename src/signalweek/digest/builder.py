@@ -12,6 +12,11 @@ canonicalization) matches any ``items.primary_url`` from the last 12
 it. Held or draft issues do not consume the dedup budget — only published
 ones do.
 
+Lone repos: a cluster whose primary URL is a GitHub repo and which only one
+outlet surfaced (in practice, the GitHub-trending feed on its own) is not
+eligible. A trending repo is a tool, not AI-industry news (spec §3: "not
+tools/prompts"); it earns a slot only once another source covers it.
+
 Hold guard: an issue built with fewer than ``min_items`` total items is
 recorded as ``status='held'`` and never marked published. Callers can
 inspect it and decide whether to fill the slot manually. A held issue's
@@ -31,8 +36,10 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from urllib.parse import urlsplit
 
 from sqlalchemy import and_, select
 from sqlalchemy.engine import Connection
@@ -182,6 +189,8 @@ def build_issue(
         if canonicalize_url(primary_url) in dedup_urls:
             rejected += 1
             continue
+        if _is_lone_repo(primary_url, sources_by_cluster.get(cid, ())):
+            continue
         inputs.append(
             ClusterInput(
                 id=cid,
@@ -253,6 +262,14 @@ def publish_issue(
 # ---------------------------------------------------------------------------
 # DB reads
 # ---------------------------------------------------------------------------
+
+
+def _is_lone_repo(primary_url: str, sources: Iterable[ClusterSource]) -> bool:
+    """True for a github.com cluster that fewer than two outlets surfaced."""
+    host = (urlsplit(primary_url).hostname or "").lower()
+    if host not in ("github.com", "www.github.com"):
+        return False
+    return len({s.source_url for s in sources}) < 2
 
 
 def _ensure_no_existing_issue(connection: Connection, week_of: date) -> None:
