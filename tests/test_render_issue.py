@@ -91,8 +91,12 @@ def test_extra_sources_are_rendered_as_links_to_their_label() -> None:
             )
         ]
     )
-    assert '<a href="https://one.example/" rel="noopener" class="source-chip">One Example</a>' in html
-    assert '<a href="https://two.example/" rel="noopener" class="source-chip">two.example</a>' in html
+    assert (
+        '<a href="https://one.example/" rel="noopener" class="source-chip">One Example</a>' in html
+    )
+    assert (
+        '<a href="https://two.example/" rel="noopener" class="source-chip">two.example</a>' in html
+    )
     # An "also covered by" affordance surfaces the extras section.
     assert "Also covered by" in html
 
