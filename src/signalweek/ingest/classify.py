@@ -15,7 +15,14 @@ Classification uses two deterministic signals:
 If keyword matches are absent, the source hint wins; if that is also missing
 the classifier falls back to ``industry_moves``. That guarantees the pass is
 total by construction — every cluster ends up in exactly one of the five
-buckets.
+buckets. The one exception to "the hint wins" is ``funding``: a funding round
+is an event the headline has to name (a raise, a round, a valuation), so a
+funding-hinted source with no keyword match lands in ``industry_moves``
+rather than filling the Funding section with whatever its feed carried.
+
+Whether a story belongs in the digest at all is a separate question, answered
+by :func:`is_ai_relevant` before ranking (see :mod:`signalweek.digest.builder`):
+stories that are not about the AI industry are dropped rather than classified.
 
 Keywords never override a *locked* source (``sources.category_locked``, set
 for clearly single-category feeds such as court dockets) — its hint is used
@@ -63,6 +70,13 @@ FALLBACK_CATEGORY = "industry_moves"
 
 # Stories whose primary URL lives on arXiv are always research.
 RESEARCH_ONLY_HOSTS: frozenset[str] = frozenset({"arxiv.org", "export.arxiv.org"})
+
+# Frontier labs' own sites: what a lab publishes about itself is AI-industry
+# news by definition, even when its feed carries a bare title ("Investing in
+# the public benefit"). See :func:`is_ai_lab_url`.
+AI_LAB_HOSTS: frozenset[str] = frozenset(
+    {"openai.com", "anthropic.com", "deepmind.google", "mistral.ai", "huggingface.co"}
+)
 
 # Tie-break priority applied when several categories share the top keyword
 # score AND the source hint is not among them. The broadest bucket,
@@ -175,8 +189,6 @@ _LEXICONS: dict[str, tuple[str, ...]] = {
     "funding": (
         "raise",
         "raises",
-        "raised",
-        "raising",
         "funding",
         "funding round",
         "round",
@@ -260,20 +272,162 @@ _LEXICONS: dict[str, tuple[str, ...]] = {
 }
 
 
+# "raised"/"raising" only count as funding next to an amount or a round:
+# "raised $26M" is a raise, "raised scraping concerns" is not.
+_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
+    "funding": (
+        r"\b(?:raised|raising)\b(?=[^.?!]{0,30}?(?:[$€£]\s?\d|\d\s?(?:million|billion|[mbk]\b)"
+        r"|\bround\b|\bseries\b|\bseed\b))",
+    ),
+}
+
+# Categories the source hint alone may not assign: the headline must name the
+# event. See the module docstring.
+_EVIDENCE_ONLY_CATEGORIES: frozenset[str] = frozenset({"funding"})
+
+# AI-industry vocabulary for :func:`is_ai_relevant`: the technology itself, the
+# labs and their flagship products, and the compute/robotics build-out the
+# beat covers. Matched as whole words, case-insensitively.
+_AI_TERMS: tuple[str, ...] = (
+    "ai",
+    "a.i.",
+    "agi",
+    "genai",
+    "artificial intelligence",
+    "machine learning",
+    "deep learning",
+    "neural",
+    "neural network",
+    "llm",
+    "llms",
+    "language model",
+    "language models",
+    "foundation model",
+    "foundation models",
+    "reasoning model",
+    "reasoning models",
+    "generative",
+    "chatbot",
+    "chatbots",
+    "agentic",
+    "superintelligence",
+    "deepfake",
+    "deepfakes",
+    "transformer",
+    "transformers",
+    "diffusion model",
+    "inference",
+    "fine-tune",
+    "fine-tuning",
+    "training data",
+    "computer vision",
+    "openai",
+    "chatgpt",
+    "gpt",
+    "sora",
+    "anthropic",
+    "claude",
+    "deepmind",
+    "gemini",
+    "copilot",
+    "xai",
+    "grok",
+    "mistral",
+    "llama",
+    "deepseek",
+    "qwen",
+    "hugging face",
+    "perplexity",
+    "midjourney",
+    "nvidia",
+    "gpu",
+    "gpus",
+    "data center",
+    "data centers",
+    "datacenter",
+    "datacenters",
+    "robot",
+    "robots",
+    "robotaxi",
+    "robotaxis",
+    "robotics",
+    "humanoid",
+    "self-driving",
+    "autonomous vehicle",
+    "autonomous vehicles",
+    "agent",
+    "agents",
+    "mcp",
+    "codex",
+    "vibe coding",
+    "vibe coded",
+    "vibe-coded",
+    "open model",
+    "open models",
+    "open-weight",
+    "open weights",
+    "multimodal",
+    "mixture-of-experts",
+    "pretraining",
+    "post-training",
+    "embedding",
+    "embeddings",
+    "speech recognition",
+    "text-to-speech",
+    "asr",
+    "tts",
+    "gemma",
+    "pytorch",
+    "tpu",
+    "trainium",
+)
+
+# AI-model phrasing the word list cannot express: "image generation model",
+# "a 2T-parameter model", "voice model".
+_AI_EXTRA_PATTERNS: tuple[str, ...] = (
+    r"\b(?:frontier|voice|speech|image|video|world|vision|generation|reasoning|base|weather"
+    r"|time-series|decision|coding|audio|music)\s+models?\b",
+    r"\b\d+(?:\.\d+)?\s?[bmt]-?param(?:eter)?s?\b",
+)
+
+
+def _word_pattern(term: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", re.IGNORECASE)
+
+
 def _compile_lexicons() -> dict[str, tuple[re.Pattern[str], ...]]:
     compiled: dict[str, tuple[re.Pattern[str], ...]] = {}
     for category, terms in _LEXICONS.items():
-        compiled[category] = tuple(
-            re.compile(
-                rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])",
-                re.IGNORECASE,
-            )
-            for term in terms
+        compiled[category] = tuple(_word_pattern(term) for term in terms) + tuple(
+            re.compile(pattern, re.IGNORECASE) for pattern in _EXTRA_PATTERNS.get(category, ())
         )
     return compiled
 
 
 _COMPILED_LEXICONS: dict[str, tuple[re.Pattern[str], ...]] = _compile_lexicons()
+_AI_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    _word_pattern(term) for term in _AI_TERMS
+) + tuple(re.compile(pattern, re.IGNORECASE) for pattern in _AI_EXTRA_PATTERNS)
+
+
+def is_ai_relevant(headline: str, lead: str = "", *, scoped: bool = False) -> bool:
+    """Whether a story is about the AI industry, the digest's beat (spec §3).
+
+    ``headline`` plus ``lead`` — the story's short "what happened" text, not
+    its full body — must mention AI vocabulary (:data:`_AI_TERMS`). The rest of
+    the body is ignored on purpose: an aside such as a lawsuit "claiming an
+    AI-slop pipeline" deep in an article, or a README noting "an AI generates
+    the client", does not make a story AI news.
+
+    ``scoped`` marks stories that are on-beat by where they come from — feeds
+    the provider already filters to AI (arXiv's AI/ML lists, the AI-query
+    court and Federal Register feeds: every locked source) and the labs' own
+    sites (:func:`is_ai_lab_url`); they always pass.
+    """
+    if scoped:
+        return True
+    text = f"{headline or ''}\n{lead or ''}"
+    return any(pattern.search(text) for pattern in _AI_PATTERNS)
 
 
 def classify_text(
@@ -291,7 +445,7 @@ def classify_text(
     category has the top score it wins. On a tie, ``category_hint`` wins when
     it is among the top scorers; otherwise the fixed ``_TIE_BREAK_PRIORITY``
     decides. When no lexicon matches at all, ``category_hint`` is used (when
-    valid) or :data:`FALLBACK_CATEGORY`.
+    valid and not ``funding``) or :data:`FALLBACK_CATEGORY`.
 
     The return value is always one of :data:`CATEGORIES`.
     """
@@ -302,7 +456,7 @@ def classify_text(
     top_score = max(scores.values())
 
     if top_score == 0:
-        if category_hint in CATEGORIES:
+        if category_hint in CATEGORIES and category_hint not in _EVIDENCE_ONLY_CATEGORIES:
             return category_hint
         return FALLBACK_CATEGORY
 
@@ -420,10 +574,20 @@ def classify_clusters(bind: Session | Connection) -> ClassifyRunResult:
 
 def is_research_only_url(url: str | None) -> bool:
     """Whether ``url`` is hosted on arXiv (and so may only appear in Research)."""
+    return _host(url) in RESEARCH_ONLY_HOSTS
+
+
+def is_ai_lab_url(url: str | None) -> bool:
+    """Whether ``url`` is on a frontier lab's own site (:data:`AI_LAB_HOSTS`)."""
+    host = _host(url)
+    return any(host == lab or host.endswith("." + lab) for lab in AI_LAB_HOSTS)
+
+
+def _host(url: str | None) -> str:
     host = (urlsplit(url or "").hostname or "").lower()
     if host.startswith("www."):
         host = host[4:]
-    return host in RESEARCH_ONLY_HOSTS
+    return host
 
 
 def _is_research_only(kind: str | None, primary_url: str | None) -> bool:

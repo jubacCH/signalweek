@@ -25,6 +25,8 @@ from signalweek.ingest.classify import (
     FALLBACK_CATEGORY,
     classify_clusters,
     classify_text,
+    is_ai_lab_url,
+    is_ai_relevant,
 )
 from signalweek.sources import (
     clusters_table,
@@ -103,7 +105,18 @@ def test_classify_headline_about_a_hire_returns_industry_moves() -> None:
 def test_hint_used_when_no_keyword_matches() -> None:
     """A vague headline with no lexicon hits falls back to the source hint."""
     assert classify_text("Weekly notes and thoughts", category_hint="research") == "research"
-    assert classify_text("Weekly notes and thoughts", category_hint="funding") == "funding"
+    assert classify_text("Weekly notes and thoughts", category_hint="models") == "models"
+
+
+def test_funding_hint_alone_never_assigns_funding() -> None:
+    """A funding round must be named in the headline; the hint is not enough."""
+    assert classify_text("Weekly notes and thoughts", category_hint="funding") == FALLBACK_CATEGORY
+
+
+def test_raised_counts_as_funding_only_next_to_an_amount_or_round() -> None:
+    assert classify_text("Acme raised $40M to build robots") == "funding"
+    assert classify_text("Acme has raised a Series B") == "funding"
+    assert classify_text("Post raised privacy concerns", category_hint="funding") != "funding"
 
 
 def test_fallback_when_no_keywords_and_no_hint() -> None:
@@ -604,3 +617,192 @@ def test_locked_source_hint_beats_keywords_in_classify_clusters(
     assert stored[locked_id] == "lawsuits_policy"
     # The same headline from an unlocked source still follows keywords.
     assert stored[unlocked_id] == "funding"
+
+
+# ---------------------------------------------------------------------------
+# AI-industry relevance gate (AIC-10205)
+# ---------------------------------------------------------------------------
+#
+# Headlines, sources and "what happened" leads exactly as published in the
+# 2026-10-12, 10-19 and 10-26 issues. Every source below is unlocked, so the
+# gate decides on the text alone.
+
+SOURCE_HINTS = {
+    "GitHub trending — Python (weekly)": "models",
+    "FTC press releases": "lawsuits_policy",
+    "The Verge — AI": "industry_moves",
+    "TechCrunch — AI": "funding",
+    "Crunchbase News": "funding",
+    "Ars Technica — AI": "industry_moves",
+}
+
+OFF_BEAT_ITEMS = [
+    (
+        "GitHub trending — Python (weekly)",
+        "littledivy/mimic",
+        "Intercept any app, then call it from Python like a library",
+    ),
+    (
+        "FTC press releases",
+        "FTC Secures Settlement with Auto Dealership Group in Price Transparency Win for Consumers",
+        "Complaint alleges Greenway Auto Group deceived consumers by advertising prices "
+        "thousands of dollars below actual prices and sending false prize mailers",
+    ),
+    (
+        "The Verge — AI",
+        "DistroKid has been quietly taking down songs in response to UMG lawsuit",
+        "Artists are taking to social media to complain that DistroKid has unceremoniously "
+        "removed their work without notice. Now DistroKid has confirmed to The Verge that the "
+        "takedowns are a direct response to claims made by UMG.",
+    ),
+    (
+        "TechCrunch — AI",
+        "Will the HomeView be Apple’s first smart home success?",
+        "Apple will announce a new smart home hub on Tuesday called the HomeView, according to "
+        "Bloomberg’s Mark Gurman.",
+    ),
+    (
+        "TechCrunch — AI",
+        "48 hours to TechCrunch Disrupt 2026 — hear directly from the people building what’s next",
+        "Less than 48 hours, TechCrunch Disrupt 2026 starts in San Francisco’s Moscone West. "
+        "Save up to $100 on your pass before prices increase at the door.",
+    ),
+    (
+        "FTC press releases",
+        "FTC Sends More than $9.8 Million to Consumers Harmed by Walmart’s Failure to Stop "
+        "Scammers that Used its Wire Transfer Services to Take Millions from Customers",
+        "The Federal Trade Commission is sending payments totaling more than $9.8 million to "
+        "consumers harmed by Walmart’s alleged failure to stop scammers.",
+    ),
+    (
+        "FTC press releases",
+        "FTC Sues Ticket Broker Over Unlawful Tactics Used to Buy Millions of Tickets to Popular "
+        "Live Events",
+        "Complaint alleges REPS earned millions by unlawfully bypassing ticket-issuer security "
+        "measures to exceed purchasing limits",
+    ),
+    (
+        "Crunchbase News",
+        "LatAm Startup Funding Jumps 26% In Q3 As VCs Begin ‘Rediscovering’ The Region",
+        "A continued boom in late-stage and growth funding combined with a surge in seed-stage "
+        "funding helped buoy venture investment in Latin America for the third quarter of 2026.",
+    ),
+    (
+        "FTC press releases",
+        "FTC Sues Perpetrators of Government Impersonation Scheme Over Deceptive Ads, Misleading "
+        "Promises and Fake Reviews",
+        "Agency alleges corporate and individual defendants deceived travelers seeking passport "
+        "services by impersonating the federal government",
+    ),
+    (
+        "Ars Technica — AI",
+        "Updated Google privacy policy says your Gmail might be used for advertising",
+        "Turning on Personal Intelligence gives the company more data for ad targeting.",
+    ),
+    (
+        "FTC press releases",
+        "Court Permanently Shuts Down Illegal Debt Relief Operation Following FTC Allegation That "
+        "Scheme’s Operators Impersonated Government and Business Entities",
+        "Court enters $106.8 million judgment and orders defendants to turn over assets",
+    ),
+]
+
+MISFILED_AS_FUNDING = [
+    (
+        "TechCrunch — AI",
+        "An Anthropic AI model sent a false homicide tip to Philadelphia police",
+        "Anthropic did not discover this behavior until over two months after its AI submitted "
+        "the false tip.",
+    ),
+    (
+        "TechCrunch — AI",
+        "Can the AI industry persuade data center opponents by getting rid of NDAs?",
+        "On Equity, we debate the impact of data center moratoriums.",
+    ),
+    (
+        "TechCrunch — AI",
+        "Anthropic says it’s committing 5% of its shares to a ‘public benefit fund’",
+        "Anthropic said that it will commit 5% of its shares to the fund.",
+    ),
+    (
+        "TechCrunch — AI",
+        "Meta removes language that raised scraping and AI training concerns",
+        "A Meta spokesperson insisted that the updated terms did not reflect a change in the way "
+        "Meta crawls the web.",
+    ),
+    (
+        "TechCrunch — AI",
+        "Anthropic says its workforce has become less junior and is spending more time in meetings",
+        "The composition of Anthropic’s workforce and the type of work getting done have changed "
+        "significantly in the past year.",
+    ),
+    (
+        "Crunchbase News",
+        "The FDE Bubble: Silicon Valley’s Most Expensive Game Of Pretend",
+        "Enterprise AI companies relying on armies of forward deployed engineers are disguising "
+        "labor-intensive services as scalable software.",
+    ),
+    (
+        "TechCrunch — AI",
+        "AI delivers ‘zero financial payoff’ to most companies, according to Apollo economist",
+        "Despite massive investments and widespread hype around artificial intelligence, the "
+        "technology has delivered zero financial payoff to corporate America outside of tech.",
+    ),
+    (
+        "TechCrunch — AI",
+        "The hottest AI wearables and gadgets you should know about",
+        "We compiled a list of all the hottest AI wearables, including Muse Charm, Bee, Friend, "
+        "Plaud, and more.",
+    ),
+    (
+        "TechCrunch — AI",
+        "The AI graveyard: a running list of projects and startups that didn’t make it",
+        "Here's a look at the AI projects that shut down or missed expectations.",
+    ),
+]
+
+
+@pytest.mark.parametrize(("source", "headline", "lead"), OFF_BEAT_ITEMS)
+def test_off_beat_items_fail_the_relevance_gate(source: str, headline: str, lead: str) -> None:
+    assert source in SOURCE_HINTS
+    assert is_ai_relevant(headline, lead) is False
+
+
+@pytest.mark.parametrize(("source", "headline", "lead"), MISFILED_AS_FUNDING)
+def test_ai_stories_without_a_funding_event_are_not_filed_as_funding(
+    source: str, headline: str, lead: str
+) -> None:
+    assert is_ai_relevant(headline, lead) is True
+    category = classify_text(headline, category_hint=SOURCE_HINTS[source])
+    assert category != "funding"
+    assert category == "industry_moves"
+
+
+def test_real_funding_rounds_still_land_in_funding() -> None:
+    for headline in (
+        "DeepSeek reportedly raises $15B days after US restrictions",
+        "Former Plaud exec raises $26M for AI app that listens to you in the background",
+    ):
+        assert is_ai_relevant(headline) is True
+        assert classify_text(headline, category_hint="funding") == "funding"
+
+
+def test_relevance_gate_judges_headline_and_lead_only() -> None:
+    assert is_ai_relevant("Apple ships a new phone", "It runs a new on-device LLM.") is True
+    assert is_ai_relevant("Disney agrees to hire the majority of Character.AI’s workforce")
+    assert is_ai_relevant("Canva releases its first image generation model")
+    assert is_ai_relevant("Meta releases 816B-parameter Muse Spark Open")
+    assert not is_ai_relevant("Weekly notes and thoughts", "Nothing to see here.")
+
+
+def test_scoped_stories_always_clear_the_relevance_gate() -> None:
+    assert is_ai_relevant("Doe v. Acme Corp", scoped=True) is True
+
+
+def test_ai_lab_urls() -> None:
+    assert is_ai_lab_url("https://www.anthropic.com/news/public-benefit")
+    assert is_ai_lab_url("https://openai.com/index/introducing-gpt-6-1-terra/")
+    assert is_ai_lab_url("https://huggingface.co/blog/falcon-asr")
+    assert not is_ai_lab_url("https://blogs.nvidia.com/blog/geforce-now-thursday/")
+    assert not is_ai_lab_url("https://notanthropic.com/x")
+    assert not is_ai_lab_url(None)

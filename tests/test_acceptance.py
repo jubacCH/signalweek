@@ -366,13 +366,13 @@ def test_every_published_item_has_a_fixed_category_and_a_live_primary_url(
             conn,
             source_id=dead_source,
             url="https://dead.example/story",
-            title="Startup raises seed round",
+            title="AI startup raises seed round",
             body="Body.",
         )
         _insert_cluster(
             conn,
             primary_url="https://dead.example/story",
-            canonical_headline="Startup raises seed round",
+            canonical_headline="AI startup raises seed round",
             category="funding",
         )
 

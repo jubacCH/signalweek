@@ -917,7 +917,7 @@ def test_item_byline_falls_back_to_host_and_first_seen(curated_engine: Engine) -
         _insert_cluster(
             conn,
             primary_url="https://www.example.com/story",
-            canonical_headline="Story",
+            canonical_headline="AI story",
             category="models",
         )
 
@@ -1014,6 +1014,7 @@ def test_github_repo_covered_by_a_second_outlet_is_eligible(curated_engine: Engi
                 source_id=source_id,
                 url="https://github.com/meituan-longcat/LongCat-Video",
                 title="meituan-longcat/LongCat-Video",
+                body="<p>LongCat-Video, a 13.6B-parameter video generation model</p><hr />README",
             )
         _insert_cluster(
             conn,
@@ -1025,3 +1026,98 @@ def test_github_repo_covered_by_a_second_outlet_is_eligible(curated_engine: Engi
         result = build_issue(conn, now=NOW, min_items=1)
 
     assert result.total_items == 1
+
+
+def test_off_beat_cluster_is_dropped_before_ranking(curated_engine: Engine) -> None:
+    """An unfiltered feed's non-AI story never reaches an issue (AIC-10205)."""
+    with curated_engine.begin() as conn:
+        s = _insert_source(conn, url="https://www.ftc.gov/feeds/press-release.xml")
+        _insert_raw_item(
+            conn,
+            source_id=s,
+            url="https://www.ftc.gov/news/ticket-broker",
+            body="Complaint alleges REPS earned millions by bypassing ticket-issuer limits.",
+        )
+        _insert_cluster(
+            conn,
+            primary_url="https://www.ftc.gov/news/ticket-broker",
+            canonical_headline="FTC Sues Ticket Broker Over Unlawful Tactics",
+            category="lawsuits_policy",
+        )
+        _insert_raw_item(conn, source_id=s, url="https://www.ftc.gov/news/chatbots")
+        _insert_cluster(
+            conn,
+            primary_url="https://www.ftc.gov/news/chatbots",
+            canonical_headline="FTC launches inquiry into AI chatbots acting as companions",
+            category="lawsuits_policy",
+        )
+
+    with curated_engine.begin() as conn:
+        result = build_issue(conn, now=NOW, min_items=1)
+        headlines = [
+            row.headline
+            for row in conn.execute(
+                items_table.select().where(items_table.c.issue_id == result.issue_id)
+            )
+        ]
+
+    assert result.rejected_off_beat == 1
+    assert headlines == ["FTC launches inquiry into AI chatbots acting as companions"]
+
+
+def test_relevance_gate_ignores_ai_asides_past_the_summary(curated_engine: Engine) -> None:
+    body = (
+        "Artists are taking to social media to complain that DistroKid has unceremoniously "
+        "removed their work without notice. Now DistroKid has confirmed to The Verge that the "
+        "takedowns are a direct response to claims made by UMG. The label filed a lawsuit "
+        'claiming that DistroKid has created an "AI-slop pipeline."'
+    )
+    with curated_engine.begin() as conn:
+        s = _insert_source(
+            conn, url="https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+        )
+        _insert_raw_item(conn, source_id=s, url="https://www.theverge.com/distrokid", body=body)
+        _insert_cluster(
+            conn,
+            primary_url="https://www.theverge.com/distrokid",
+            canonical_headline="DistroKid has been quietly taking down songs over UMG lawsuit",
+        )
+
+    with curated_engine.begin() as conn:
+        result = build_issue(conn, now=NOW, min_items=1)
+
+    assert result.total_items == 0
+    assert result.rejected_off_beat == 1
+
+
+def test_lab_and_locked_feed_stories_clear_the_gate_without_ai_words(
+    curated_engine: Engine,
+) -> None:
+    """A lab's bare-title post and an AI-query docket feed are on-beat by origin."""
+    with curated_engine.begin() as conn:
+        lab = _insert_source(conn, url="https://example.com/anthropic-news.xml")
+        _insert_raw_item(conn, source_id=lab, url="https://www.anthropic.com/news/public-benefit")
+        _insert_cluster(
+            conn,
+            primary_url="https://www.anthropic.com/news/public-benefit",
+            canonical_headline="Investing in the public benefit",
+        )
+        dockets = _insert_source(conn, url="https://www.courtlistener.com/feed/search/")
+        conn.execute(
+            sources_table.update()
+            .where(sources_table.c.id == dockets)
+            .values(category_hint="lawsuits_policy", category_locked=True)
+        )
+        _insert_raw_item(conn, source_id=dockets, url="https://www.courtlistener.com/docket/1")
+        _insert_cluster(
+            conn,
+            primary_url="https://www.courtlistener.com/docket/1",
+            canonical_headline="Doe v. Acme Corp",
+            category="lawsuits_policy",
+        )
+
+    with curated_engine.begin() as conn:
+        result = build_issue(conn, now=NOW, min_items=1)
+
+    assert result.total_items == 2
+    assert result.rejected_off_beat == 0

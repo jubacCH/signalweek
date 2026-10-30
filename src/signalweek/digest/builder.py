@@ -17,6 +17,13 @@ outlet surfaced (in practice, the GitHub-trending feed on its own) is not
 eligible. A trending repo is a tool, not AI-industry news (spec §3: "not
 tools/prompts"); it earns a slot only once another source covers it.
 
+Off-beat stories: a cluster whose headline and "what happened" text say
+nothing about AI (:func:`signalweek.ingest.classify.is_ai_relevant`) is not
+eligible either — the FTC's general consumer-protection releases or a
+smart-home launch carried by an AI feed are not AI-industry news. Locked,
+AI-scoped feeds (arXiv, the AI-query docket and Federal Register feeds) and the
+labs' own sites pass as-is.
+
 Hold guard: an issue built with fewer than ``min_items`` total items is
 recorded as ``status='held'`` and never marked published. Callers can
 inspect it and decide whether to fill the slot manually. A held issue's
@@ -46,7 +53,13 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
 from signalweek.ingest.canonical import canonicalize_url
-from signalweek.ingest.classify import CATEGORIES, classify_clusters, is_research_only_url
+from signalweek.ingest.classify import (
+    CATEGORIES,
+    classify_clusters,
+    is_ai_lab_url,
+    is_ai_relevant,
+    is_research_only_url,
+)
 from signalweek.ranking import (
     DEFAULT_WEIGHTS,
     ClusterInput,
@@ -57,6 +70,7 @@ from signalweek.ranking import (
 )
 from signalweek.sources import (
     clusters_table,
+    is_category_locked,
     issues_table,
     items_table,
     raw_items_table,
@@ -119,7 +133,8 @@ class BuildResult:
     ``'published'``, or ``'draft'`` when the caller asked to publish later via
     :func:`publish_issue`. ``items_per_category`` records how many items landed in
     each of the five fixed buckets; ``rejected_by_dedup`` counts candidate
-    clusters dropped by the 12-week URL dedup guard.
+    clusters dropped by the 12-week URL dedup guard and ``rejected_off_beat``
+    those dropped as not AI-industry news.
     """
 
     issue_id: int
@@ -128,6 +143,7 @@ class BuildResult:
     total_items: int
     items_per_category: dict[str, int] = field(default_factory=dict)
     rejected_by_dedup: int = 0
+    rejected_off_beat: int = 0
     candidates_considered: int = 0
 
 
@@ -184,12 +200,16 @@ def build_issue(
     anchors = _load_anchors(connection, {url for _, _, url in cluster_rows.values()})
 
     rejected = 0
+    off_beat = 0
     inputs: list[ClusterInput] = []
     for cid, (category, headline, primary_url) in cluster_rows.items():
         if canonicalize_url(primary_url) in dedup_urls:
             rejected += 1
             continue
         if _is_lone_repo(primary_url, sources_by_cluster.get(cid, ())):
+            continue
+        if not _is_on_beat(headline, primary_url, anchors.get(primary_url)):
+            off_beat += 1
             continue
         inputs.append(
             ClusterInput(
@@ -234,6 +254,7 @@ def build_issue(
         total_items=total,
         items_per_category=per_category_count,
         rejected_by_dedup=rejected,
+        rejected_off_beat=off_beat,
         candidates_considered=len(cluster_rows),
     )
 
@@ -270,6 +291,19 @@ def _is_lone_repo(primary_url: str, sources: Iterable[ClusterSource]) -> bool:
     if host not in ("github.com", "www.github.com"):
         return False
     return len({s.source_url for s in sources}) < 2
+
+
+def _is_on_beat(headline: str, primary_url: str, anchor: _Anchor | None) -> bool:
+    """Whether a cluster is AI-industry news, judged on the headline and the
+    "what happened" text the issue would print under it."""
+    headline = _clean_headline(headline)
+    lead = build_what_happened(headline, anchor.body if anchor else None)
+    scoped = (
+        is_research_only_url(primary_url)
+        or is_ai_lab_url(primary_url)
+        or (anchor is not None and anchor.scoped)
+    )
+    return is_ai_relevant(headline, lead, scoped=scoped)
 
 
 def _ensure_no_existing_issue(connection: Connection, week_of: date) -> None:
@@ -408,6 +442,8 @@ class _Anchor:
     body: str | None
     source_name: str | None
     published_at: datetime
+    # The source is a locked feed, filtered to AI by its provider.
+    scoped: bool = False
 
 
 def _load_anchors(connection: Connection, primary_urls: set[str]) -> dict[str, _Anchor]:
@@ -428,6 +464,8 @@ def _load_anchors(connection: Connection, primary_urls: set[str]) -> dict[str, _
             raw_items_table.c.published_at,
             raw_items_table.c.first_seen_at,
             sources_table.c.name,
+            sources_table.c.kind,
+            sources_table.c.category_locked,
         )
         .select_from(
             raw_items_table.join(sources_table, raw_items_table.c.source_id == sources_table.c.id)
@@ -443,6 +481,7 @@ def _load_anchors(connection: Connection, primary_urls: set[str]) -> dict[str, _
             body=row.body,
             source_name=row.name,
             published_at=_ensure_aware(row.published_at or row.first_seen_at),
+            scoped=is_category_locked(row.kind, row.category_locked),
         )
     return anchors
 
