@@ -43,7 +43,7 @@ LIT_INDEX = 3
 
 def logo_svg(x: float, y: float, scale: float) -> str:
     parts = [f'<g transform="translate({x} {y}) scale({scale})">']
-    for i, (bx, by, bh) in enumerate(zip(BAR_X, BAR_Y, BAR_H)):
+    for i, (bx, by, bh) in enumerate(zip(BAR_X, BAR_Y, BAR_H, strict=True)):
         fill = HIGHLIGHT if i == LIT_INDEX else INK
         opacity = 1 if i == LIT_INDEX else 0.32
         parts.append(
@@ -62,10 +62,10 @@ def cat_pill(x: float, y: float, label: str, color: str) -> tuple[str, float]:
     escaped = label.replace("&", "&amp;")
     svg = f"""
     <g transform="translate({x} {y})">
-      <rect x="0" y="0" width="{width:.0f}" height="{height}" rx="{height/2:.0f}"
+      <rect x="0" y="0" width="{width:.0f}" height="{height}" rx="{height / 2:.0f}"
             fill="#ffffff" stroke="{LINE}" stroke-width="1.5"/>
-      <circle cx="{pad_x + dot_r}" cy="{height/2:.0f}" r="{dot_r}" fill="{color}"/>
-      <text x="{pad_x*2 + dot_r*2}" y="{height/2 + font_size*0.34:.0f}"
+      <circle cx="{pad_x + dot_r}" cy="{height / 2:.0f}" r="{dot_r}" fill="{color}"/>
+      <text x="{pad_x * 2 + dot_r * 2}" y="{height / 2 + font_size * 0.34:.0f}"
             font-family="{SANS}" font-size="{font_size}" font-weight="600"
             fill="{MUTED}">{escaped}</text>
     </g>"""
@@ -105,11 +105,12 @@ def build() -> str:
     <tspan x="88" y="354">Every item cites its primary source.</tspan>
   </text>
 
-  <text x="88" y="410" font-family="{SANS}" font-size="25" fill="{MUTED}">No accounts, no infinite scroll &#8212; one calm page every Monday.</text>
+  <text x="88" y="410" font-family="{SANS}" font-size="25"
+        fill="{MUTED}">No accounts, no infinite scroll &#8212; one calm page every Monday.</text>
 
   <line x1="88" y1="454" x2="{W - 88}" y2="454" stroke="{LINE}" stroke-width="1.5"/>
 
-  {''.join(cats_svg)}
+  {"".join(cats_svg)}
 </svg>"""
 
 
