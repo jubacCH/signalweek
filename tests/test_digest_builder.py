@@ -1090,10 +1090,12 @@ def test_relevance_gate_ignores_ai_asides_past_the_summary(curated_engine: Engin
     assert result.rejected_off_beat == 1
 
 
-def test_lab_and_locked_feed_stories_clear_the_gate_without_ai_words(
+def test_lab_stories_clear_the_gate_but_locked_query_feeds_do_not(
     curated_engine: Engine,
 ) -> None:
-    """A lab's bare-title post and an AI-query docket feed are on-beat by origin."""
+    """A lab's bare-title post is on-beat by origin; the locked full-text-query
+    docket and Federal Register feeds must pass the headline/lead check
+    (AIC-13124)."""
     with curated_engine.begin() as conn:
         lab = _insert_source(conn, url="https://example.com/anthropic-news.xml")
         _insert_raw_item(conn, source_id=lab, url="https://www.anthropic.com/news/public-benefit")
@@ -1103,21 +1105,66 @@ def test_lab_and_locked_feed_stories_clear_the_gate_without_ai_words(
             canonical_headline="Investing in the public benefit",
         )
         dockets = _insert_source(conn, url="https://www.courtlistener.com/feed/search/")
+        register = _insert_source(conn, url="https://www.federalregister.gov/api/v1/documents.rss")
         conn.execute(
             sources_table.update()
-            .where(sources_table.c.id == dockets)
+            .where(sources_table.c.id.in_([dockets, register]))
             .values(category_hint="lawsuits_policy", category_locked=True)
         )
         _insert_raw_item(conn, source_id=dockets, url="https://www.courtlistener.com/docket/1")
         _insert_cluster(
             conn,
             primary_url="https://www.courtlistener.com/docket/1",
-            canonical_headline="Doe v. Acme Corp",
+            canonical_headline="Cook v. Commissioner of Social Security",
+            category="lawsuits_policy",
+        )
+        _insert_raw_item(
+            conn,
+            source_id=register,
+            url="https://www.federalregister.gov/d/2026-1",
+            body="Notice is hereby given, pursuant to the provisions of the rules and "
+            "regulations of the U.S. Commission on Civil Rights.",
+        )
+        _insert_cluster(
+            conn,
+            primary_url="https://www.federalregister.gov/d/2026-1",
+            canonical_headline="Notice of Public Meetings of the Maryland Advisory Committee "
+            "to the U.S. Commission on Civil Rights",
+            category="lawsuits_policy",
+        )
+        _insert_raw_item(
+            conn,
+            source_id=register,
+            url="https://www.federalregister.gov/d/2026-2",
+            body="The Food and Drug Administration (FDA) is classifying the digital cervical "
+            "cytology slide imaging system with artificial intelligence algorithm into class II.",
+        )
+        _insert_cluster(
+            conn,
+            primary_url="https://www.federalregister.gov/d/2026-2",
+            canonical_headline="Classification of the Digital Cervical Cytology Slide Imaging "
+            "System With Artificial Intelligence Algorithm",
+            category="lawsuits_policy",
+        )
+        _insert_raw_item(conn, source_id=dockets, url="https://www.courtlistener.com/docket/2")
+        _insert_cluster(
+            conn,
+            primary_url="https://www.courtlistener.com/docket/2",
+            canonical_headline="Kahn v. Anthropic PBC",
             category="lawsuits_policy",
         )
 
     with curated_engine.begin() as conn:
         result = build_issue(conn, now=NOW, min_items=1)
+        headlines = {
+            row.headline
+            for row in conn.execute(
+                items_table.select().where(items_table.c.issue_id == result.issue_id)
+            )
+        }
 
-    assert result.total_items == 2
-    assert result.rejected_off_beat == 0
+    assert result.total_items == 3
+    assert result.rejected_off_beat == 2
+    assert "Investing in the public benefit" in headlines
+    assert "Kahn v. Anthropic PBC" in headlines
+    assert not any("Civil Rights" in h or "Social Security" in h for h in headlines)

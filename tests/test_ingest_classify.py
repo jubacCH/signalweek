@@ -799,6 +799,43 @@ def test_scoped_stories_always_clear_the_relevance_gate() -> None:
     assert is_ai_relevant("Doe v. Acme Corp", scoped=True) is True
 
 
+# Federal Register items exactly as fetched for the 2026-11-09 issue (AIC-13124).
+# The feed is a full-text search, so it is not on-beat by origin: the first two
+# mention AI only deep in their bodies and were published under Lawsuits & policy.
+FEDERAL_REGISTER_OFF_BEAT = [
+    (
+        "Notice of Public Meetings of the Maryland Advisory Committee to the U.S. "
+        "Commission on Civil Rights",
+        "Notice is hereby given, pursuant to the provisions of the rules and regulations "
+        "of the U.S.",
+    ),
+    (
+        "Medicare and Medicaid Programs; CY 2027 Payment Policies Under the Physician Fee "
+        "Schedule and Other Changes to Part B Payment and Coverage Policies",
+        "This final rule addresses: changes to the physician fee schedule (PFS); other "
+        "changes to Medicare Part B payment policies to ensure that payment systems are "
+        "updated to reflect changes in medical practice.",
+    ),
+]
+
+
+@pytest.mark.parametrize(("headline", "lead"), FEDERAL_REGISTER_OFF_BEAT)
+def test_federal_register_items_without_ai_fail_the_relevance_gate(
+    headline: str, lead: str
+) -> None:
+    assert is_ai_relevant(headline, lead) is False
+
+
+def test_federal_register_ai_rule_passes_the_relevance_gate() -> None:
+    assert is_ai_relevant(
+        "Medical Devices; Hematology and Pathology Devices; Classification of the Digital "
+        "Cervical Cytology Slide Imaging System With Artificial Intelligence Algorithm",
+        "The Food and Drug Administration (FDA) is classifying the digital cervical cytology "
+        "slide imaging system with artificial intelligence algorithm into class II (special "
+        "controls).",
+    )
+
+
 def test_ai_lab_urls() -> None:
     assert is_ai_lab_url("https://www.anthropic.com/news/public-benefit")
     assert is_ai_lab_url("https://openai.com/index/introducing-gpt-6-1-terra/")

@@ -419,10 +419,11 @@ def is_ai_relevant(headline: str, lead: str = "", *, scoped: bool = False) -> bo
     AI-slop pipeline" deep in an article, or a README noting "an AI generates
     the client", does not make a story AI news.
 
-    ``scoped`` marks stories that are on-beat by where they come from — feeds
-    the provider already filters to AI (arXiv's AI/ML lists, the AI-query
-    court and Federal Register feeds: every locked source) and the labs' own
-    sites (:func:`is_ai_lab_url`); they always pass.
+    ``scoped`` marks stories that are on-beat by where they come from —
+    arXiv's AI/ML category lists and the labs' own sites
+    (:func:`is_ai_lab_url`); they always pass. The AI-query court and Federal
+    Register feeds are *not* scoped: they are full-text searches that also
+    return documents mentioning AI only in passing.
     """
     if scoped:
         return True

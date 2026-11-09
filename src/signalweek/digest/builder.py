@@ -20,9 +20,10 @@ tools/prompts"); it earns a slot only once another source covers it.
 Off-beat stories: a cluster whose headline and "what happened" text say
 nothing about AI (:func:`signalweek.ingest.classify.is_ai_relevant`) is not
 eligible either — the FTC's general consumer-protection releases or a
-smart-home launch carried by an AI feed are not AI-industry news. Locked,
-AI-scoped feeds (arXiv, the AI-query docket and Federal Register feeds) and the
-labs' own sites pass as-is.
+smart-home launch carried by an AI feed are not AI-industry news. arXiv's
+AI/ML category lists and the labs' own sites pass as-is. The AI-query docket
+and Federal Register feeds do not: they are full-text searches, so a Medicare
+fee rule that mentions AI once in its body still comes back.
 
 Hold guard: an issue built with fewer than ``min_items`` total items is
 recorded as ``status='held'`` and never marked published. Callers can
@@ -69,8 +70,8 @@ from signalweek.ranking import (
     rank_clusters,
 )
 from signalweek.sources import (
+    ALWAYS_LOCKED_KINDS,
     clusters_table,
-    is_category_locked,
     issues_table,
     items_table,
     raw_items_table,
@@ -442,7 +443,8 @@ class _Anchor:
     body: str | None
     source_name: str | None
     published_at: datetime
-    # The source is a locked feed, filtered to AI by its provider.
+    # The source is an arXiv AI/ML category list, on-beat by origin. Locked
+    # full-text-query feeds (dockets, Federal Register) are not.
     scoped: bool = False
 
 
@@ -465,7 +467,6 @@ def _load_anchors(connection: Connection, primary_urls: set[str]) -> dict[str, _
             raw_items_table.c.first_seen_at,
             sources_table.c.name,
             sources_table.c.kind,
-            sources_table.c.category_locked,
         )
         .select_from(
             raw_items_table.join(sources_table, raw_items_table.c.source_id == sources_table.c.id)
@@ -481,7 +482,7 @@ def _load_anchors(connection: Connection, primary_urls: set[str]) -> dict[str, _
             body=row.body,
             source_name=row.name,
             published_at=_ensure_aware(row.published_at or row.first_seen_at),
-            scoped=is_category_locked(row.kind, row.category_locked),
+            scoped=row.kind in ALWAYS_LOCKED_KINDS,
         )
     return anchors
 
