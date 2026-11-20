@@ -10,6 +10,7 @@ SQLAlchemy Core tables defined in :mod:`signalweek.sources`.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -115,6 +116,52 @@ def test_parse_atom_strips_tracking_and_prefers_alternate_link() -> None:
     ]
     # ``published`` should win over ``updated`` when both are present.
     assert entries[1].published_at == datetime(2026, 7, 18, 8, 0, tzinfo=UTC)
+
+
+def test_parse_feed_drops_arxiv_revisions() -> None:
+    """Real cs.AI entries: ``replace``/``replace-cross`` are old papers, not news."""
+    entries = parse_feed(_fixture("arxiv_announce_types.xml"))
+
+    assert [e.canonical_url for e in entries] == [
+        "https://arxiv.org/abs/2611.25043",  # new
+        "https://arxiv.org/abs/2611.24943",  # cross
+    ]
+
+
+def test_parse_feed_reads_arxiv_announce_type_from_summary_preamble() -> None:
+    """Without the ``arxiv:announce_type`` element the summary preamble decides."""
+    content = re.sub(
+        rb"\s*<arxiv:announce_type>[^<]*</arxiv:announce_type>",
+        b"",
+        _fixture("arxiv_announce_types.xml"),
+    )
+    assert b"<arxiv:announce_type>" not in content
+
+    entries = parse_feed(content)
+
+    assert [e.canonical_url for e in entries] == [
+        "https://arxiv.org/abs/2611.25043",
+        "https://arxiv.org/abs/2611.24943",
+    ]
+
+
+def test_ingest_source_stores_only_new_arxiv_announcements(curated_engine: Engine) -> None:
+    with curated_engine.begin() as conn:
+        source_id = _insert_source(conn, url="https://rss.arxiv.org/rss/cs.AI", kind="arxiv_rss")
+        result = ingest_source(
+            conn,
+            source_id=source_id,
+            url="https://rss.arxiv.org/rss/cs.AI",
+            content=_fixture("arxiv_announce_types.xml"),
+            now=datetime(2026, 11, 20, 12, 0, tzinfo=UTC),
+        )
+        rows = _stored_rows(conn, source_id)
+
+    assert result.inserted == 2
+    assert {r["canonical_url"] for r in rows} == {
+        "https://arxiv.org/abs/2611.25043",
+        "https://arxiv.org/abs/2611.24943",
+    }
 
 
 def test_parse_feed_handles_empty_input() -> None:

@@ -5,8 +5,8 @@ The pipeline is intentionally small and testable:
 * :func:`fetch_feed` downloads raw feed bytes with ``httpx``.
 * :func:`parse_feed` runs the bytes through ``feedparser`` and returns a
   normalized :class:`FetchedEntry` per item — entries without a usable link
-  are discarded and duplicates within one feed collapse on their canonical
-  URL.
+  are discarded, arXiv revisions of older papers are dropped, and duplicates
+  within one feed collapse on their canonical URL.
 * :func:`ingest_source` fetches a single active source and writes new
   ``raw_items`` rows for it, dedup'd on ``(source_id, canonical_url)``.
 * :func:`ingest_all_active` scans the ``sources`` table for ``active=True``
@@ -20,6 +20,7 @@ the ``industry_moves`` category, not a first-class fast path).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from time import struct_time
@@ -40,6 +41,11 @@ DEFAULT_USER_AGENT = "signalweek-ingest/0.1 (+https://signalweek.example)"
 # newly added feed's whole archive would get ``first_seen_at = now`` and pass
 # as this week's news. Undated entries are always kept.
 DEFAULT_MAX_ENTRY_AGE = timedelta(days=7)
+# arXiv feeds tag each entry with an announce type. ``replace`` and
+# ``replace-cross`` are new versions of papers first submitted earlier, not
+# new releases, so they are never stored. ``new`` and ``cross`` are kept.
+ARXIV_REVISION_TYPES: frozenset[str] = frozenset({"replace", "replace-cross"})
+_ARXIV_ANNOUNCE_RE = re.compile(r"^arXiv:\S+\s+Announce Type:\s*(\S+)", re.IGNORECASE)
 
 
 class FetchError(RuntimeError):
@@ -121,7 +127,7 @@ def parse_feed(content: bytes | str) -> list[FetchedEntry]:
     seen: set[str] = set()
     for raw in parsed.entries:
         link = _entry_link(raw)
-        if not link:
+        if not link or _is_arxiv_revision(raw):
             continue
         canonical = canonicalize_url(link)
         if not canonical or canonical in seen:
@@ -307,6 +313,19 @@ def _entry_link(raw: Any) -> str | None:
             if isinstance(href, str) and href.strip():
                 return href.strip()
     return None
+
+
+def _is_arxiv_revision(raw: Any) -> bool:
+    """True for an arXiv ``replace``/``replace-cross`` announcement.
+
+    The type comes from feedparser's ``arxiv_announce_type`` field, falling
+    back to the ``Announce Type:`` preamble arXiv puts in the summary.
+    """
+    announce = raw.get("arxiv_announce_type")
+    if not isinstance(announce, str) or not announce.strip():
+        match = _ARXIV_ANNOUNCE_RE.match(_entry_body(raw) or "")
+        announce = match.group(1) if match else ""
+    return announce.strip().lower() in ARXIV_REVISION_TYPES
 
 
 def _entry_title(raw: Any) -> str:

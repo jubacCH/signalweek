@@ -1,0 +1,70 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<rss xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" version="2.0">
+  <channel>
+    <title>cs.AI updates on arXiv.org</title>
+    <link>http://rss.arxiv.org/rss/cs.AI</link>
+    <description>cs.AI updates on the arXiv.org e-print archive.</description>
+    <atom:link href="http://rss.arxiv.org/rss/cs.AI" rel="self" type="application/rss+xml"/>
+    <docs>http://www.rssboard.org/rss-specification</docs>
+    <language>en-us</language>
+    <lastBuildDate>Fri, 20 Nov 2026 05:04:41 +0000</lastBuildDate>
+    <managingEditor>rss-help@arxiv.org</managingEditor>
+    <pubDate>Fri, 20 Nov 2026 00:00:00 -0500</pubDate>
+    <skipDays>
+      <day>Sunday</day>
+      <day>Saturday</day>
+    </skipDays>
+        <item>
+      <title>Closing the Analyze-to-Design Gap: An Authorization-Bounded Agent for Self-Driving Laboratories</title>
+      <link>https://arxiv.org/abs/2611.25043</link>
+      <description>arXiv:2611.25043v1 Announce Type: new 
+Abstract: Artificial intelligence (AI) agents are increasingly integrated into self-driving laboratories (SDLs) to plan experiments and interpret results. However, analytical reasoning alone does not make a laboratory autonomous: autonomy in an SDL is achievable only when the agent can be trusted to act on physical hardware unsupervised and knows when to defer to a human. Here, we present an architecture that integrates an agent at the Analyze-Design interface of the Design-Make-Test-Analyze (DMTA) cycle, enabling agent-driven measurement selection and data interpretation while ensuring that state-changing operations are authorized, validated, and auditable. We demonstrate this architecture on a liquid chromatography-mass spectrometry (LC-MS) instrument in an oxidant-screening campaign for synthesizing an organic dye. Within human-defined campaign limits, the agent submitted measurement jobs, interpreted mass spectrometry (MS) and diode-array detection (DAD) data, flagged failed experiments, and produced an oxidant ranking. This ranking matched that obtained from scripted peak integration, and organic chemists confirmed the agent's spectral interpretations and failure assignments. In a simulated environment that replays the archived LC-MS data, where the agent chose which wells to inject under varying injection limits, it measured the highest-yielding condition at about its seventh injection, against 14.5 on average for a random order, and identified it in every campaign with a limit of eight or more injections. An agent can therefore close the analysis-to-design gap while its actions stay bounded and verifiable, which is a step toward greater autonomy for SDLs.</description>
+      <guid isPermaLink="false">oai:arXiv.org:2611.25043v1</guid>
+      <category>cs.AI</category>
+      <pubDate>Fri, 20 Nov 2026 00:00:00 -0500</pubDate>
+      <arxiv:announce_type>new</arxiv:announce_type>
+      <dc:rights>http://arxiv.org/licenses/nonexclusive-distrib/1.0/</dc:rights>
+      <dc:creator>Yimeng Liu, Eric Isbrandt, Felix Katzenburg, Kevin P. Greenman, Han Hao, Yang Cao, Varinia Bernales, Al\'an Aspuru-Guzik</dc:creator>
+    </item>
+    <item>
+      <title>LLM Complexity: Towards a Computational Complexity View of Large Language Model Inference</title>
+      <link>https://arxiv.org/abs/2611.24943</link>
+      <description>arXiv:2611.24943v1 Announce Type: cross 
+Abstract: Computational complexity theory offers a principled framework for characterizing the efficiency of computational problems, and Large Language Models (LLMs) can similarly be viewed as computational systems executing a structured process of input, inference-time compute, and output. In this context, the number of generated tokens emerges as a natural and directly observable proxy for inference-time compute. However, we show that the tempting analogy between LLM token length and classical time complexity does not hold. We disprove the hypothesis that inference-time token usage aligns monotonically with classical time complexity, demonstrating a fundamental divergence grounded in how LLMs actually allocate computation during inference. To this end, we introduce LLM Complexity, a new metric designed to quantify problem complexity from the perspective of LLMs by characterizing the area bounded above by the accuracy-token curve. We find that diverse LLMs induce highly consistent task rankings under LLM Complexity, indicating that the metric captures stable notions of difficulty across models. We leverage this property to construct an easy-to-hard curriculum for supervised fine-tuning, which improves accuracy while reducing token consumption. Finally, we demonstrate that LLM Complexity generalizes to real-world tasks, producing more stable cross-model correlations than human-annotated difficulty labels.</description>
+      <guid isPermaLink="false">oai:arXiv.org:2611.24943v1</guid>
+      <category>cs.CL</category>
+      <category>cs.AI</category>
+      <category>cs.LG</category>
+      <pubDate>Fri, 20 Nov 2026 00:00:00 -0500</pubDate>
+      <arxiv:announce_type>cross</arxiv:announce_type>
+      <dc:rights>http://creativecommons.org/licenses/by/4.0/</dc:rights>
+      <dc:creator>Yu-Hung Wu, Shao-Xiang Yuan, Chan-Hung Yu, Zih-Ching Chen, Kuan-Hao Huang, Shao-Hua Sun</dc:creator>
+    </item>
+    <item>
+      <title>LLM4Rail: An LLM-Augmented Personalized Railway Services Platform</title>
+      <link>https://arxiv.org/abs/2507.23377</link>
+      <description>arXiv:2507.23377v2 Announce Type: replace 
+Abstract: Large language models (LLMs) have significantly reshaped different walks of business. To meet the increasing demands for individualized railway service, we develop LLM4Rail - a novel LLM-augmented personalized railway services platform. Empowered by the LLM, LLM4Rail provides dedicated modules for ticket and weather inquiries, food &amp; drink recommendations, and casual conversation. In LLM4Rail, we propose the iterative "Experience-Retrieval Question-Thought-Action-Observation (ER-QTAO)" reasoning framework. It introduces two key mechanisms, Experience Storage and Retrieval (ESR) and Diagnostic Observation Generation (DOG), to enhance the LLM's ability to invoke appropriate external tools with complex arguments. To provide personalized onboard dining services, we first construct the Chinese Railway Food &amp; Drink (CRFD) dataset, which covers a wide range of signature dishes categorized by city, cuisine, age group, and spiciness level, and then develop an LLM-based zero-shot conversational recommender system for railway catering. In addition, to address the unconstrained nature of generative recommendations, we design a feature-similarity-based alignment mechanism to ensure that all recommended items are aligned with entries in the CRFD dataset.</description>
+      <guid isPermaLink="false">oai:arXiv.org:2507.23377v2</guid>
+      <category>cs.AI</category>
+      <pubDate>Fri, 20 Nov 2026 00:00:00 -0500</pubDate>
+      <arxiv:announce_type>replace</arxiv:announce_type>
+      <dc:rights>http://arxiv.org/licenses/nonexclusive-distrib/1.0/</dc:rights>
+      <dc:creator>Zhuo Li, Xianghuai Deng, Chiwei Feng, Hanmeng Li, Shenjie Wang, Junchao Fan, Jiaxing Shen, Zhiyuan Wen, Longxiang Gao, Linchun Wu</dc:creator>
+    </item>
+    <item>
+      <title>Ensemble Logic</title>
+      <link>https://arxiv.org/abs/2408.14443</link>
+      <description>arXiv:2408.14443v3 Announce Type: replace-cross 
+Abstract: Ensemble Logic (EL) is a family of modal logics whose modal parameters are terms with quantified variables. We interpret formulas over metric monoids, that is, commutative monoids equipped with translation-invariant metrics. Displacement evaluates a formula at a translated point, while bounded existence and bounded universality evaluate it at some or every point of a window of prescribed length. Quantification over points and lengths allows the same variable to occur in the parameters of several operators. This provides a common framework for temporal and spatial reasoning in discrete, dense and multi-dimensional settings. Our main result establishes a sharp undecidability boundary for satisfiability over the natural numbers: satisfiability is undecidable already for formulas $\exists N\,\exists n\,\Psi$ in which $\Psi$ is built from the letters of a fixed alphabet by conjunction, disjunction, displacement and bounded universality. We prove this by a reduction from Post's Correspondence Problem. We also present results, in part from companion work, that place this theorem in the general theory of EL. These include an atomic-displacement normal form for covariant windows and composition laws for discrete and dense time. The discrete logic admits an embedding of linear temporal logic, defines the accepting runs of every B\"uchi automaton, and has a sound equational calculus. For the rational logic, we show that every fixed formula can be evaluated in polynomial time on interval models in which atomic propositions are interpreted by finite unions of intervals. Finally, we represent timed words over positions and real time and compare two window geometries; with rectangular windows, two shared lengths yield undecidability on finite timed words.</description>
+      <guid isPermaLink="false">oai:arXiv.org:2408.14443v3</guid>
+      <category>cs.LO</category>
+      <category>cs.AI</category>
+      <category>cs.FL</category>
+      <pubDate>Fri, 20 Nov 2026 00:00:00 -0500</pubDate>
+      <arxiv:announce_type>replace-cross</arxiv:announce_type>
+      <dc:rights>http://creativecommons.org/licenses/by-nc-nd/4.0/</dc:rights>
+      <dc:creator>Guo-Qiang Zhang</dc:creator>
+    </item>
+  </channel>
+</rss>
