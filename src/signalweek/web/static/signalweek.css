@@ -720,16 +720,18 @@ article {
 .issues-index__meta {
   color: var(--sw-faint); font-size: .82rem;
   display: inline-flex; align-items: center; gap: .45rem;
+  flex-wrap: wrap; row-gap: .3rem;
   font-family: var(--sw-mono); font-variant-numeric: tabular-nums;
   text-align: right;
 }
-.issues-index__meta time { color: var(--sw-muted); }
+.issues-index__meta time { color: var(--sw-muted); white-space: nowrap; }
 .issues-index__sep { color: var(--sw-line); }
 .issues-index__count {
   padding: .15rem .55rem; border-radius: 999px;
   background: var(--sw-highlight-soft); color: var(--sw-highlight-ink);
   border: 1px solid color-mix(in srgb, var(--sw-highlight) 25%, transparent);
   font-size: .74rem; letter-spacing: .04em;
+  white-space: nowrap;
 }
 
 /* ---------- forms (only used by admin surface; kept for parity) ---------- */
