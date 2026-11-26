@@ -144,7 +144,6 @@ _LEXICONS: dict[str, tuple[str, ...]] = {
         "suing",
         "court",
         "ruling",
-        "rules",
         "judge",
         "plaintiff",
         "defendant",
@@ -156,6 +155,9 @@ _LEXICONS: dict[str, tuple[str, ...]] = {
         "regulator",
         "regulators",
         "regulatory",
+        "regulate",
+        "regulates",
+        "regulating",
         "eu ai act",
         "ai act",
         "gdpr",
@@ -165,24 +167,19 @@ _LEXICONS: dict[str, tuple[str, ...]] = {
         "white house",
         "ftc",
         "doj",
-        "sec",
         "european commission",
         "european union",
         "brussels",
         "policy",
         "legislation",
-        "bill",
-        "law",
         "senate",
         "congress",
-        "ban",
         "banned",
         "banning",
         "subpoena",
         "settlement",
         "complaint",
         "fined",
-        "fine",
         "penalty",
         "penalties",
     ),
@@ -274,7 +271,19 @@ _LEXICONS: dict[str, tuple[str, ...]] = {
 
 # "raised"/"raising" only count as funding next to an amount or a round:
 # "raised $26M" is a raise, "raised scraping concerns" is not.
+#
+# Short legal words ("law", "bill", "SEC", ...) also turn up in product,
+# vertical and finance headlines, so each one skips its common non-legal
+# phrasings: a product "for Law", a "law firm", "Moore's Law", "Bill Gates",
+# "Ray-Ban", a company filing "with the SEC" or a "routine SEC report".
 _EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
+    "lawsuits_policy": (
+        r"(?<![A-Za-z0-9])(?<!for )(?<!of )(?<!['’]s )law(?![A-Za-z0-9])(?!\s*(?:firms?\b|&))",
+        r"\bbill\b(?!\s+gates\b)",
+        r"(?<!to the )(?<!with the )\bsec\b(?!\s+(?:reports?|filings?|10-k)\b)",
+        r"\brules\b(?!\s+of\b)",
+        r"(?<![A-Za-z0-9-])ban(?![A-Za-z0-9])",
+    ),
     "funding": (
         r"\b(?:raised|raising)\b(?=[^.?!]{0,30}?(?:[$€£]\s?\d|\d\s?(?:million|billion|[mbk]\b)"
         r"|\bround\b|\bseries\b|\bseed\b))",

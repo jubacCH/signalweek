@@ -843,3 +843,66 @@ def test_ai_lab_urls() -> None:
     assert not is_ai_lab_url("https://blogs.nvidia.com/blog/geforce-now-thursday/")
     assert not is_ai_lab_url("https://notanthropic.com/x")
     assert not is_ai_lab_url(None)
+
+
+# Issue No. 48 (AIC-18028): bare legal-domain words ("law", "SEC", "rules")
+# filed product launches and finance items under Lawsuits & policy.
+NOT_LAWSUITS_POLICY = [
+    ("Astra for Law leads in legal intelligence", "models", "models"),
+    ("Introducing Astra for Law", "models", "models"),
+    ("Harvey launches a contract review agent built for law firms", "industry_moves", "models"),
+    (
+        "Nvidia created a weird bit of intrigue by not filing a routine SEC report",
+        "funding",
+        "industry_moves",
+    ),
+    ("Anthropic files S-1 with the SEC for proposed initial public offering", "models", "models"),
+    ("How law firm Gilbert + Tobin governs and scales AI with OpenAI", "models", "models"),
+    ("Large Language Models: A New Moore's Law?", "models", "models"),
+    (
+        "Bill Gates says to prepare for 20 years of ‘tumultuous’ AI disruption",
+        "industry_moves",
+        "industry_moves",
+    ),
+    (
+        "I don’t miss the camera on the Ray-Ban Meta Audio glasses",
+        "industry_moves",
+        "industry_moves",
+    ),
+]
+
+LAWSUITS_POLICY = [
+    ("States Sue SpaceX Over Grok Deepfakes", "industry_moves"),
+    ("Oregon and Virginia sue SpaceX over Grok’s porn deepfakes", "industry_moves"),
+    (
+        "Traumatized teens sue school, cops after Doritos bag triggers AI gun alert",
+        "industry_moves",
+    ),
+    ("The UN fails to agree on rules regulating ‘killer robots’", "industry_moves"),
+    ("SEC reportedly investigating Nvidia amid Huang exit", "funding"),
+    ("Senate passes bill to ban AI deepfakes in elections", "industry_moves"),
+    ("Lawmakers prepare bill requiring AI ‘kill switch’", "industry_moves"),
+    (
+        "OpenAI, Anthropic face new oversight as New York’s AI safety law takes effect",
+        "industry_moves",
+    ),
+    ("Trump administration orders ban on DeepSeek in federal agencies", "funding"),
+    (
+        "Star AI hedge fund that nearly imploded, now being probed by the SEC",
+        "funding",
+    ),
+]
+
+
+@pytest.mark.parametrize(("headline", "hint", "expected"), NOT_LAWSUITS_POLICY)
+def test_legal_domain_words_alone_do_not_make_a_story_lawsuits_policy(
+    headline: str, hint: str, expected: str
+) -> None:
+    assert classify_text(headline, category_hint=hint) == expected
+
+
+@pytest.mark.parametrize(("headline", "hint"), LAWSUITS_POLICY)
+def test_real_litigation_and_policy_items_still_land_in_lawsuits_policy(
+    headline: str, hint: str
+) -> None:
+    assert classify_text(headline, category_hint=hint) == "lawsuits_policy"
